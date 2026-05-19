@@ -1,0 +1,16 @@
+name: tracker
+description: Checks the shipping status, current location, and estimated delivery for a given order or tracking number.
+triggers:
+  - "where is my order"
+  - "track my package"
+  - "what is the shipping status"
+  - "has my item shipped"
+inputs:
+  tracking_number:
+    type: string
+    description: The carrier's tracking number for the shipment.
+    required: false
+  order_id:
+    type: string
+    description: The internal MarketX order ID (if tracking number is unknown).
+    required: false

@@ -1,0 +1,4 @@
+docker compose up --build -d
+docker compose exec api npx prisma db push
+docker compose exec api npx prisma db seed
+curl -X POST http://localhost:4000/api/auth/dev-token

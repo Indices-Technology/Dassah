@@ -1,0 +1,19 @@
+name: logistics
+description: Calculates shipping costs for an order from available carriers based on origin, destination, and weight.
+triggers:
+  - "how much is shipping"
+  - "calculate delivery cost"
+  - "what are the shipping options"
+inputs:
+  origin:
+    type: string
+    description: The city or address where the shipment originates.
+    required: true
+  destination:
+    type: string
+    description: The city or address for the final delivery.
+    required: true
+  weight_kg:
+    type: number
+    description: The weight of the package in kilograms.
+    required: false

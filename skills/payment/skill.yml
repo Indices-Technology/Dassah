@@ -1,0 +1,23 @@
+name: payment
+description: Generates a secure Paystack payment link and an approval token for a product the user wants to buy.
+triggers:
+  - "buy this"
+  - "purchase the second one"
+  - "I want to order"
+inputs:
+  productId:
+    type: string
+    description: The ID of the product the user wants to purchase
+    required: true
+  productName:
+    type: string
+    description: The name of the product
+    required: true
+  price:
+    type: number
+    description: The numeric price of the product
+    required: true
+  currency:
+    type: string
+    description: The currency code (e.g., NGN)
+    required: false

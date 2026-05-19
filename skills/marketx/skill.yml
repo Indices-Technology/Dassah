@@ -1,0 +1,19 @@
+name: marketx
+description: Searches the MarketX platform for products matching a user query, category, or price limit.
+triggers:
+  - "find me a product"
+  - "search for"
+  - "do you have any"
+inputs:
+  query:
+    type: string
+    description: The main search term for the product (e.g., 'Nike shoes', 'laptop')
+    required: true
+  category:
+    type: string
+    description: Optional category to filter products
+    required: false
+  max_price:
+    type: number
+    description: Maximum price the user is willing to pay
+    required: false

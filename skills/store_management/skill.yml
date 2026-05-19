@@ -1,0 +1,22 @@
+name: store_management
+description: Allows sellers to update product prices and inventory levels
+triggers:
+  - update price
+  - change price
+  - set inventory
+  - update stock
+  - adjust inventory
+inputs:
+  action:
+    type: string
+    required: true
+    enum: [update_price, update_inventory]
+  productId:
+    type: string
+    required: true
+  price:
+    type: number
+    required: false
+  inventory:
+    type: number
+    required: false

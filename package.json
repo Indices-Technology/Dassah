@@ -1,0 +1,22 @@
+{
+  "name": "dassah",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix apps/ui run dev --",
+    "build": "npm --prefix apps/ui run build",
+    "preview": "npm --prefix apps/ui run preview",
+    "api:dev": "npm --prefix apps/api run dev",
+    "api:build": "npm --prefix apps/api run build",
+    "worker:dev": "npm --prefix apps/worker run dev",
+    "worker:build": "npm --prefix apps/worker run build",
+    "stack:up": "docker compose up --build -d",
+    "stack:down": "docker compose down"
+  },
+  "workspaces": [
+    "apps/ui",
+    "apps/api",
+    "apps/worker"
+  ],
+  "devDependencies": {}
+}

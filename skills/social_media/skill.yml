@@ -1,0 +1,23 @@
+name: social_media
+description: Lets sellers draft and post announcements to Instagram or send WhatsApp broadcasts
+triggers:
+  - post to instagram
+  - send whatsapp
+  - broadcast message
+  - announce
+  - social media post
+inputs:
+  action:
+    type: string
+    required: true
+    enum: [broadcast, post]
+  platform:
+    type: string
+    required: true
+    enum: [whatsapp, instagram]
+  message:
+    type: string
+    required: true
+  recipient:
+    type: string
+    required: false

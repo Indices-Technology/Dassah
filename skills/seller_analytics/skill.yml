@@ -1,0 +1,22 @@
+name: seller_analytics
+description: Allows sellers to ask natural language questions about sales performance
+triggers:
+  - how many sales
+  - revenue report
+  - sales today
+  - earnings
+  - performance
+  - analytics
+  - statistics
+inputs:
+  timeframe:
+    type: string
+    required: false
+    enum: [today, week, month, all]
+  metric:
+    type: string
+    required: false
+    enum: [revenue, orders, all]
+  sellerId:
+    type: string
+    required: true

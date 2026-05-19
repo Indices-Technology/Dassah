@@ -1,0 +1,15 @@
+name: dispute
+description: Opens a dispute or refund request for a specific order.
+triggers:
+  - "open a dispute"
+  - "I want a refund"
+  - "report an issue with my order"
+inputs:
+  order_id:
+    type: string
+    description: The internal MarketX order ID to dispute.
+    required: true
+  reason:
+    type: string
+    description: The user's reason for opening the dispute.
+    required: true

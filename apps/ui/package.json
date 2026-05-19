@@ -1,0 +1,25 @@
+{
+  "name": "@dassai/ui",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "generate": "nuxt generate"
+  },
+  "dependencies": {
+    "nuxt": "^3.12.0",
+    "socket.io-client": "^4.7.5",
+    "vue": "^3.4.29",
+    "@nuxtjs/tailwindcss": "^6.12.0",
+    "jsonwebtoken": "^9.0.2",
+    "pinia": "^2.1.7",
+    "@pinia/nuxt": "^0.5.1"
+  },
+  "devDependencies": {
+    "@nuxt/devtools": "latest",
+    "@types/node": "^20.14.5",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,31 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DassaAI — Local Development Compose
+#
+# Infrastructure only — app services run via npm scripts:
+#   npm run dev          → Nuxt UI  :3001
+#   npm run api:dev      → Express  :4000
+#   npm run worker:dev   → BullMQ worker
+#
+# Start infra:  docker compose up -d
+# Stop infra:   docker compose down
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:
