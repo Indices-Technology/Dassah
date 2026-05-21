@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd apps/ui && npm run build",
+  "outputDirectory": "apps/ui/.output/public",
+  "installCommand": "npm install",
+  "framework": "nuxtjs"
+}
