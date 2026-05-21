@@ -3,6 +3,7 @@ import { createServer } from 'http'
 import { Server } from 'socket.io'
 import cors from 'cors'
 import helmet from 'helmet'
+import { randomUUID } from 'crypto'
 import jwt from 'jsonwebtoken'
 import { redisClient, sessionStore } from './services/session'
 import { aiService, getHistory } from './services/ai.service'
@@ -114,7 +115,7 @@ io.on('connection', async (socket) => {
 
       socket.emit('chat:typing', false)
       socket.emit('chat:message', {
-        id:        crypto.randomUUID(),
+        id:        randomUUID(),
         sessionId: userId,
         role:      'bot',
         content:   response.content,
@@ -124,7 +125,7 @@ io.on('connection', async (socket) => {
     } catch (err) {
       socket.emit('chat:typing', false)
       socket.emit('chat:message', {
-        id:        crypto.randomUUID(),
+        id:        randomUUID(),
         sessionId: userId,
         role:      'system',
         content:   'Something went wrong. Please try again.',
@@ -146,7 +147,7 @@ io.on('connection', async (socket) => {
     })
 
     socket.emit('chat:message', {
-      id:        crypto.randomUUID(),
+      id:        randomUUID(),
       sessionId: userId,
       role:      'system',
       content:   'Payment confirmed. Processing your order…',
