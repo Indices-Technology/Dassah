@@ -5,7 +5,9 @@
       <MarkdownText
         v-if="message.role !== 'system'"
         :content="message.content"
+        :interactive="message.role === 'bot'"
         :class="message.role === 'user' ? 'text-white' : 'text-gray-800'"
+        @action="$emit('quickReply', $event)"
       />
       <div v-else class="text-xs text-gray-600 text-center">{{ message.content }}</div>
 

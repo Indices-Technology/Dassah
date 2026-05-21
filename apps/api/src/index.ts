@@ -211,6 +211,40 @@ function buildMessageMetadata(
     }
   }
 
+  // Products from deals feed
+  const dealsResult = toolResults['deals'] as { products?: unknown[]; total?: number } | undefined
+  if (dealsResult?.products?.length) {
+    meta.products = meta.products ?? dealsResult.products
+    meta.isDeals = true
+  }
+
+  // Products from trending feed
+  const trendingResult = toolResults['trending'] as { products?: unknown[]; total?: number } | undefined
+  if (trendingResult?.products?.length) {
+    meta.products = meta.products ?? trendingResult.products
+    meta.isTrending = true
+  }
+
+  // Order history / single order
+  const ordersResult = toolResults['orders'] as
+    | { orders?: unknown[]; order?: unknown; total?: number }
+    | undefined
+  if (ordersResult) {
+    if (ordersResult.order) {
+      meta.orderDetail = ordersResult.order
+    } else if (ordersResult.orders) {
+      meta.orders = ordersResult.orders
+    }
+  }
+
+  // Wallet balance
+  const walletResult = toolResults['wallet'] as
+    | { balance?: number; pendingBalance?: number; currency?: string; transactions?: unknown[] }
+    | undefined
+  if (walletResult) {
+    meta.wallet = walletResult
+  }
+
   // Order tracking result
   const trackerResult = toolResults['tracker']
   if (trackerResult) {
@@ -240,9 +274,14 @@ function deriveQuickReplies(
     return ['View analytics', 'Manage inventory', 'View orders']
   }
 
-  if (meta.products) return ['Show more results', 'Filter by price', 'View cart', 'Search something else']
-  if (meta.cart)      return ['Checkout', 'Remove item', 'Continue shopping']
-  if (meta.cartUpdate) return ['View cart', 'Checkout now', 'Continue shopping']
+  if (meta.isDeals)      return ['Add to cart', 'View cart', 'Show more deals', 'Search products']
+  if (meta.isTrending)   return ['Add to cart', 'View cart', 'Search products', 'View deals']
+  if (meta.products)     return ['Show more results', 'Filter by price', 'View cart', 'Search something else']
+  if (meta.cart)         return ['Checkout', 'Remove item', 'Continue shopping']
+  if (meta.cartUpdate)   return ['View cart', 'Checkout now', 'Continue shopping']
+  if (meta.orderDetail)  return ['Track this order', 'Contact support', 'View all orders']
+  if (meta.orders)       return ['View order details', 'Track my order', 'Contact support']
+  if (meta.wallet)       return ['Add funds', 'View transactions', 'View orders', 'View cart']
   if (meta.orderTracking) return ['Contact support', 'View all orders']
   return ['Browse products', 'View cart', 'Track my order']
 }

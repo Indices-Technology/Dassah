@@ -35,14 +35,14 @@ module.exports = {
     const inner = body.data ?? {}
     const products = (inner.products ?? []).map((p) => ({
       id:       p.id,
-      name:     p.name || p.title,
+      name:     p.title || p.name,
       price:    p.price,
+      discount: p.discount ?? null,
       currency: 'NGN',
-      seller:   p.seller?.storeName || p.storeName || p.sellerProfile?.storeName,
+      seller:   p.seller?.store_name,
       sellerId: p.sellerId,
-      imageUrl: p.images?.[0]?.url || p.image,
-      inStock:  p.stock > 0 || p.status === 'PUBLISHED',
-      rating:   p.rating || null,
+      imageUrl: p.media?.[0]?.url,
+      inStock:  (p.variants?.[0]?.stock ?? 1) > 0,
       slug:     p.slug,
     }))
 

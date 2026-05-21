@@ -22,21 +22,23 @@
     <!-- ── Hero ──────────────────────────────────────────────────────────────── -->
     <section class="px-6 pt-20 pb-16 max-w-4xl mx-auto text-center">
 
-      <!-- Error -->
-      <div v-if="errorMsg" class="mb-6 inline-flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm text-red-400">
-        <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-        </svg>
-        {{ errorMsg }}
-      </div>
+      <ClientOnly>
+        <!-- Error -->
+        <div v-if="errorMsg" class="mb-6 inline-flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm text-red-400">
+          <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+          </svg>
+          {{ errorMsg }}
+        </div>
 
-      <!-- SSO loading -->
-      <div v-if="loading" class="flex flex-col items-center gap-4 py-8">
-        <div class="w-12 h-12 rounded-full border-2 border-[#e52033]/20 border-t-[#e52033] animate-spin" />
-        <p class="text-white/50 text-sm">Signing you in…</p>
-      </div>
+        <!-- SSO loading -->
+        <div v-if="loading" class="flex flex-col items-center gap-4 py-8">
+          <div class="w-12 h-12 rounded-full border-2 border-[#e52033]/20 border-t-[#e52033] animate-spin" />
+          <p class="text-white/50 text-sm">Signing you in…</p>
+        </div>
+      </ClientOnly>
 
-      <template v-else>
+      <template v-if="!loading">
         <!-- Badge -->
         <div class="inline-flex items-center gap-2 rounded-full bg-[#e52033]/10 border border-[#e52033]/20 px-3 py-1 text-xs font-medium text-[#e52033] mb-6">
           <span class="w-1.5 h-1.5 rounded-full bg-[#e52033] animate-pulse" />
