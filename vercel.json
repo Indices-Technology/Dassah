@@ -1,5 +1,4 @@
 {
   "installCommand": "rm -f package-lock.json && npm install",
-  "buildCommand": "cd apps/ui && npm run build",
-  "outputDirectory": "apps/ui/.output"
+  "buildCommand": "cd apps/ui && npm run build && cp -r .vercel ../.."
 }
