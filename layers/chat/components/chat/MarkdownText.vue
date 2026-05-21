@@ -28,10 +28,18 @@ const rendered = computed(() => {
 
   if (props.interactive) {
     // Bullet list items → clickable chip spans
+    // Strip HTML tags from data-chip so clicking sends plain text, not markup
     html = html.replace(
       /^[-*•] (.+)/gm,
-      (_, text) =>
-        `<span data-chip="${text.replace(/"/g, '&quot;')}" class="chat-chip">${text}</span>`,
+      (_, text) => {
+        const plain = text
+          .replace(/<[^>]+>/g, '')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+        return `<span data-chip="${plain.replace(/"/g, '&quot;')}" class="chat-chip">${text}</span>`
+      },
     )
   } else {
     html = html.replace(/^[-*•] (.+)/gm, '<li class="ml-4 list-disc">$1</li>')

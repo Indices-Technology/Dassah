@@ -28,7 +28,7 @@ module.exports = {
       currency: 'NGN',
       seller:   p.seller?.store_name || p.sellerProfile?.storeName,
       imageUrl: p.media?.[0]?.url,
-      inStock:  p.status === 'PUBLISHED',
+      inStock:  !p.variants?.length || p.variants.some(v => v.stock > 0),
       slug:     p.slug,
       discount: p.discount ?? null,
     }))

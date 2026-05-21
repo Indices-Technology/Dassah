@@ -42,7 +42,7 @@ module.exports = {
       seller:   p.seller?.store_name,
       sellerId: p.sellerId,
       imageUrl: p.media?.[0]?.url,
-      inStock:  (p.variants?.[0]?.stock ?? 1) > 0,
+      inStock:  !p.variants?.length || p.variants.some(v => v.stock > 0),
       slug:     p.slug,
     }))
 
