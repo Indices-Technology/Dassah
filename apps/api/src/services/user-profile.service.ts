@@ -78,16 +78,15 @@ export const userProfileService = {
    * Non-blocking — does not affect turn latency.
    */
   extractAndUpdate(userId: string, userMessage: string, assistantResponse: string): void {
-    // Run extraction in the background
     setImmediate(async () => {
       try {
         const current = await userProfileService.getProfile(userId)
-
         const updates = extractPreferences(userMessage, current)
         if (!updates) return
 
         await userProfileService.upsertProfile(userId, updates)
         await bustCache(userId)
+        console.log(`[user-profile] extracted for ${userId}:`, JSON.stringify(updates))
       } catch (err) {
         console.error('[user-profile] extractAndUpdate failed:', (err as Error).message)
       }
@@ -104,6 +103,9 @@ function extractPreferences(
 ): Partial<UserAIProfileData> | null {
   const measurements: Record<string, unknown> = {
     ...(current?.measurements as Record<string, unknown> ?? {}),
+  }
+  const preferences: Record<string, unknown> = {
+    ...(current?.preferences as Record<string, unknown> ?? {}),
   }
 
   let changed = false
@@ -124,9 +126,21 @@ function extractPreferences(
   const waist = text.match(/(?:waist\s+(\d+)|(\d+)\s*(?:inch)?\s*waist)/i)
   if (waist) { measurements.waist = waist[1] ?? waist[2]; changed = true }
 
+  // Budget — e.g. "spend around ₦8,000", "budget of 5000", "under 10k", "max 15,000"
+  const budget = text.match(/(?:spend(?:ing)?\s+(?:around|about|up to)?\s*[₦$]?\s*([\d,]+(?:k)?)|budget\s+(?:of\s+)?[₦$]?\s*([\d,]+(?:k)?)|under\s+[₦$]?\s*([\d,]+(?:k)?)|max(?:imum)?\s+[₦$]?\s*([\d,]+(?:k)?))/i)
+  if (budget) {
+    const raw = (budget[1] ?? budget[2] ?? budget[3] ?? budget[4]).replace(/,/g, '')
+    const amount = raw.toLowerCase().endsWith('k') ? String(parseInt(raw) * 1000) : raw
+    preferences.budget = amount
+    changed = true
+  }
+
   if (!changed) return null
 
-  return { measurements }
+  return {
+    ...(Object.keys(measurements).length ? { measurements } : {}),
+    ...(Object.keys(preferences).length  ? { preferences  } : {}),
+  }
 }
 
 // ── Format profile for system prompt injection ────────────────────────────────
