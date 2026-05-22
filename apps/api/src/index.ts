@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto'
 import jwt from 'jsonwebtoken'
 import { redisClient, sessionStore } from './services/session'
 import { aiService, getHistory } from './services/ai.service'
+import { startIndexer } from './workers/indexer'
 import type { UserAIConfig } from './services/ai.service'
 import { orderQueue } from './services/queue'
 import type { ServerToClientEvents, ClientToServerEvents } from './types'
@@ -96,12 +97,15 @@ io.on('connection', async (socket) => {
 
   socket.on('chat:send', async ({ content }) => {
     socket.emit('chat:typing', true)
+    const reqId = randomUUID().slice(0, 8)
 
     try {
       await sessionStore.touch(userId).catch(() => {})
 
       const channel =
         socket.data.sessionType === 'seller' ? 'dassai-seller-web' : 'dassai-web'
+
+      console.log(`[chat:${reqId}] start uid=${userId} channel=${channel} len=${content.length}`)
 
       const response = await aiService.chat({
         userId,
@@ -110,6 +114,8 @@ io.on('connection', async (socket) => {
         userToken:    session!.marketxToken,
         userAIConfig: session!.userAIConfig ?? null,
       })
+
+      console.log(`[chat:${reqId}] ok tools=${response.toolsInvoked.join(',') || 'none'} rag=${response.ragHits} blocked=${response.guardBlocked}`)
 
       const metadata = buildMessageMetadata(response.toolsInvoked, response.toolResults, channel)
 
@@ -122,7 +128,7 @@ io.on('connection', async (socket) => {
         metadata,
         createdAt: new Date(),
       })
-    } catch (err) {
+    } catch (err: any) {
       socket.emit('chat:typing', false)
       socket.emit('chat:message', {
         id:        randomUUID(),
@@ -131,7 +137,12 @@ io.on('connection', async (socket) => {
         content:   'Something went wrong. Please try again.',
         createdAt: new Date(),
       })
-      console.error('[Socket] chat:send error:', err)
+      console.error(`[chat:${reqId}] ERROR uid=${userId}`, {
+        message: err?.message,
+        status:  err?.status ?? err?.statusCode,
+        type:    err?.error?.type ?? err?.name,
+        stack:   err?.stack?.split('\n').slice(0, 5).join(' | '),
+      })
     }
   })
 
@@ -326,7 +337,10 @@ async function main() {
     console.warn('[Redis] unavailable — in-memory sessions only:', (err as Error).message)
   }
 
-  httpServer.listen(PORT, () => console.log(`[API] listening on :${PORT}`))
+  httpServer.listen(PORT, () => {
+    console.log(`[API] listening on :${PORT}`)
+    startIndexer()
+  })
 }
 
 main().catch((err) => {

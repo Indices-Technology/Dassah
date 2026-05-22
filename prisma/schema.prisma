@@ -1,3 +1,7 @@
+// Dassah API — minimal Prisma config.
+// All AI/RAG tables (Embedding, UserAIProfile, AiTurnLog, GuardRailEvent)
+// live in MarketX's database. Dassah reads/writes them via MarketX internal APIs.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,21 +11,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Local order tracking — used by the BullMQ order processor.
+// Mirrors the essential fields from MarketX Orders for queue job context.
 model Order {
   id            String   @id @default(uuid())
-  marketxId     String?  @unique // The corresponding order ID on MarketX
-  userId        String   // The MarketX User ID who made the purchase
-  sellerId      String   // The MarketX Seller ID
+  marketxId     String?  @unique
+  userId        String
+  sellerId      String
   productId     String
   productName   String
   amount        Float
   currency      String   @default("NGN")
-  
-  // Status can be: PENDING, PAID, SHIPPED, DELIVERED, DISPUTED
   status        String   @default("PENDING")
   trackingNo    String?
   disputeReason String?  @db.Text
-  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

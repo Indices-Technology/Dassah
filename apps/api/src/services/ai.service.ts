@@ -1,10 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { generateText, tool, stepCountIs } from 'ai'
+import { generateText, stepCountIs } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import type { ModelMessage, Tool as AITool } from 'ai'
 import { z } from 'zod'
-import { redisClient } from './session'
+import { redisClient }        from './session'
 import { loadSkills, type SkillEntry } from './skills.registry'
+import { embedText }          from './embedding.service'
+import { internalClient }     from '../lib/internal'
+import { userProfileService, formatProfileForPrompt } from './user-profile.service'
+import { sanitizeInput, scanOutput, checkToolInput } from './guard.service'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -12,31 +16,76 @@ export type AIProvider = 'anthropic' | 'openai'
 
 export interface UserAIConfig {
   provider: AIProvider
-  model: string
-  apiKey: string
+  model:    string
+  apiKey:   string
 }
 
 type Channel = 'dassai-web' | 'dassai-seller-web'
 
+// ── RAG context retrieval ─────────────────────────────────────────────────────
+
+const RAG_ENABLED = !!process.env.OPENAI_API_KEY
+
+async function retrieveContext(query: string, limit = 8): Promise<string> {
+  if (!RAG_ENABLED) return ''
+  try {
+    const { vector } = await embedText(query)
+    const results    = await internalClient.searchEmbeddings({ vector, limit, threshold: 0.45 })
+    if (!results.length) return ''
+
+    const lines = results.map((r) => {
+      const m    = r.metadata as Record<string, any>
+      const dist = r.distance.toFixed(3)
+      if (r.entityType === 'PRODUCT') {
+        return `[PRODUCT] ${m.title} — ₦${m.price}${m.discount ? ` (${m.discount}% off)` : ''} | Seller: ${m.sellerName ?? '?'} | In stock: ${m.inStock ? 'yes' : 'no'} | distance: ${dist}`
+      }
+      if (r.entityType === 'SELLER') {
+        return `[SELLER] ${m.storeName} | ${m.locationLabel ?? m.city ?? ''} | Verified: ${m.isVerified ? 'yes' : 'no'} | distance: ${dist}`
+      }
+      return `[SQUARE] ${m.name} (${m.type}) | ${m.city ?? ''}, ${m.state ?? ''} | distance: ${dist}`
+    })
+
+    return `[Relevant context from MarketX]\n${lines.join('\n')}`
+  } catch (err) {
+    console.error('[rag] retrieval failed:', (err as Error).message)
+    return ''
+  }
+}
+
 // ── System prompts ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPTS: Record<Channel, string> = {
-  'dassai-web': `You are DassaAI, a helpful, concise, and friendly shopping assistant for MarketX.
-Your goal is to help users find products, manage their cart, purchase items, track orders, and resolve disputes.
+function buildSystemPrompt(
+  channel:     Channel,
+  userProfile: string,
+  ragContext:  string,
+): string {
+  const base = channel === 'dassai-seller-web' ? SELLER_BASE : BUYER_BASE
+
+  const sections = [base]
+  if (userProfile) sections.push(userProfile)
+  if (ragContext)  sections.push(ragContext)
+
+  return sections.join('\n\n')
+}
+
+const BUYER_BASE = `You are DassaAI, a sharp, friendly personal shopping assistant for MarketX — Nigeria's leading social commerce platform.
+You know every seller, product, and market on the platform. You remember the user's size, style, and budget across sessions.
 
 RULES:
 1. Always explicitly ask for confirmation before generating a payment link.
 2. Keep answers brief and conversational. Avoid formal language.
-3. Never invent products or shipping prices — always use your tools to search.
+3. Never invent products or prices — always use your tools to search.
 4. For shipping/delivery questions, use the logistics tool.
 5. When a user wants to add something to their cart, use the cart tool with action=add.
 6. When a user wants to view their cart, use the cart tool with action=view.
 7. When a user wants to buy something directly, use the payment tool.
 8. NEVER display product results as markdown tables or bullet lists — the UI renders product cards automatically. Just write a short intro sentence like "Here are some options I found:" and let the cards handle the rest.
 9. When a user message contains "productId: <value>", extract that value and pass it directly to the cart tool as productId — do not search for the product again.
-10. When you want to present the user with choices or next steps, use a bullet list (- option). Each bullet becomes a tappable button in the UI, so the user can tap instead of type. Only use bullets for actual selectable options, not for informational lists.`,
+10. When you want to present the user with choices or next steps, use a bullet list (- option). Each bullet becomes a tappable button in the UI, so the user can tap instead of type. Only use bullets for actual selectable options, not for informational lists.
+11. Use the [User Profile] section (when present) to give personalised recommendations — factor in their size, budget, and preferred style without them having to repeat it.
+12. Use the [Relevant context from MarketX] section (when present) to recommend specific sellers or products by name rather than giving generic advice.`
 
-  'dassai-seller-web': `You are DassaAI Seller Manager, a powerful AI assistant for MarketX sellers.
+const SELLER_BASE = `You are DassaAI Seller Manager, a powerful AI assistant for MarketX sellers.
 Your goal is to help sellers manage their stores, view analytics, run campaigns, and handle orders.
 
 RULES:
@@ -47,18 +96,17 @@ RULES:
 5. Use store_management for inventory/price updates.
 6. Use seller_analytics for performance queries.
 7. Use social_media for marketing campaigns.
-8. When you want to present the user with choices or next steps, use a bullet list (- option). Each bullet becomes a tappable button in the UI. Only use bullets for actual selectable options, not for informational lists.`,
-}
+8. When you want to present the user with choices or next steps, use a bullet list (- option). Each bullet becomes a tappable button in the UI. Only use bullets for actual selectable options, not for informational lists.`
 
 // ── Conversation history (Redis) ──────────────────────────────────────────────
 
 export interface HistoryEntry {
-  role: 'user' | 'assistant'
+  role:    'user' | 'assistant'
   content: string
 }
 
 const HISTORY_PREFIX = 'history:'
-const HISTORY_TTL    = 86400   // 24 hours — persists across same-day sessions
+const HISTORY_TTL    = 86400
 const MAX_HISTORY    = 40
 
 export async function getHistory(userId: string): Promise<HistoryEntry[]> {
@@ -66,7 +114,6 @@ export async function getHistory(userId: string): Promise<HistoryEntry[]> {
     const raw = await redisClient.get(`${HISTORY_PREFIX}${userId}`)
     if (!raw) return []
     const parsed = JSON.parse(raw) as any[]
-    // Normalise: handles both old CoreMessage[] format and new HistoryEntry[] format
     return parsed
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
@@ -89,20 +136,20 @@ async function saveHistory(userId: string, messages: HistoryEntry[]): Promise<vo
   } catch {}
 }
 
-// ── Anthropic path (native SDK — bypasses broken @ai-sdk/anthropic) ───────────
+// ── Anthropic path ────────────────────────────────────────────────────────────
 
 async function chatWithAnthropic(
-  apiKey: string,
-  model: string,
-  system: string,
+  apiKey:  string,
+  model:   string,
+  system:  string,
   history: HistoryEntry[],
-  skills: SkillEntry[],
+  skills:  SkillEntry[],
+  userId:  string,
 ): Promise<{ content: string; toolsInvoked: string[]; toolResults: Record<string, unknown> }> {
-  const client = new Anthropic({ apiKey })
+  const client       = new Anthropic({ apiKey })
   const toolsInvoked: string[] = []
-  const toolResults: Record<string, unknown> = {}
+  const toolResults:  Record<string, unknown> = {}
 
-  // Pass skill parameters directly as input_schema — already JSON Schema objects
   const tools: Anthropic.Tool[] = skills.map((s) => ({
     name:         s.name,
     description:  s.description,
@@ -130,12 +177,21 @@ async function chatWithAnthropic(
       return { content: text, toolsInvoked, toolResults }
     }
 
-    // Execute tool calls and collect results
     const toolResultBlocks: Anthropic.ToolResultBlockParam[] = []
     for (const block of response.content) {
       if (block.type !== 'tool_use') continue
-      toolsInvoked.push(block.name)
 
+      // Guard: validate tool inputs
+      if (!checkToolInput(block.name, block.input as Record<string, unknown>, userId)) {
+        toolResultBlocks.push({
+          type:        'tool_result',
+          tool_use_id: block.id,
+          content:     'Invalid input: entity ID format rejected by guard rail.',
+        })
+        continue
+      }
+
+      toolsInvoked.push(block.name)
       const skill = skills.find((s) => s.name === block.name)
       if (!skill) {
         toolResultBlocks.push({ type: 'tool_result', tool_use_id: block.id, content: 'Tool not found' })
@@ -161,7 +217,7 @@ async function chatWithAnthropic(
   return { content: '', toolsInvoked, toolResults }
 }
 
-// ── OpenAI path (Vercel AI SDK) ───────────────────────────────────────────────
+// ── OpenAI path ───────────────────────────────────────────────────────────────
 
 function toZod(schema: Record<string, any>): z.ZodTypeAny {
   if (schema.enum) {
@@ -190,11 +246,11 @@ function toZod(schema: Record<string, any>): z.ZodTypeAny {
 }
 
 async function chatWithOpenAI(
-  apiKey: string,
-  model: string,
-  system: string,
+  apiKey:  string,
+  model:   string,
+  system:  string,
   history: HistoryEntry[],
-  skills: SkillEntry[],
+  skills:  SkillEntry[],
 ): Promise<{ content: string; toolsInvoked: string[]; toolResults: Record<string, unknown> }> {
   const openaiModel = createOpenAI({ apiKey })(model)
 
@@ -210,11 +266,11 @@ async function chatWithOpenAI(
   const messages: ModelMessage[] = history.map(({ role, content }) => ({ role, content }))
 
   const result = await generateText({
-    model:     openaiModel,
+    model:    openaiModel,
     system,
     messages,
     tools,
-    stopWhen:  stepCountIs(5),
+    stopWhen: stepCountIs(5),
   })
 
   const toolsInvoked = result.steps
@@ -228,35 +284,89 @@ async function chatWithOpenAI(
 
 export const aiService = {
   async chat(params: {
-    userId: string
-    content: string
-    channel: Channel
-    userToken: string
+    userId:       string
+    content:      string
+    channel:      Channel
+    userToken:    string
     userAIConfig: UserAIConfig | null
-  }): Promise<{ content: string; toolsInvoked: string[]; toolResults: Record<string, unknown> }> {
+  }): Promise<{ content: string; toolsInvoked: string[]; toolResults: Record<string, unknown>; guardBlocked: boolean; ragHits: number }> {
     const { userId, content, channel, userToken, userAIConfig } = params
+    const startMs = Date.now()
 
+    // 1. Guard: sanitize input
+    const guard = sanitizeInput(userId, content)
+    if (guard.blocked) {
+      console.warn(`[ai.service] guard blocked uid=${userId}`)
+      return {
+        content:      "I'm not able to help with that. Let me know if there's something I can find for you on MarketX.",
+        toolsInvoked: [],
+        toolResults:  {},
+        guardBlocked: true,
+        ragHits:      0,
+      }
+    }
+    const safeContent = guard.sanitized
+
+    // 2. Load user AI profile (cache-first)
+    const profile     = await userProfileService.getProfile(userId)
+    const profileText = formatProfileForPrompt(profile)
+
+    // 3. RAG: embed the user's query and retrieve relevant context
+    const ragContext = await retrieveContext(safeContent)
+    const ragHits    = ragContext ? ragContext.split('\n').filter((l) => l.startsWith('[')).length : 0
+
+    // 4. Build system prompt
+    const system = buildSystemPrompt(channel, profileText, ragContext)
+
+    // 5. Load history and append sanitized user message
     const history = await getHistory(userId)
-    history.push({ role: 'user', content })
+    history.push({ role: 'user', content: safeContent })
 
-    const skills = loadSkills(channel, { userToken })
-
+    const skills   = loadSkills(channel, { userToken })
     const provider = userAIConfig?.provider ?? 'anthropic'
     const model    = userAIConfig?.model    ?? 'claude-sonnet-4-6'
-    const apiKey   = userAIConfig?.apiKey   ?? process.env.ANTHROPIC_API_KEY!
+    const apiKey   = userAIConfig?.apiKey   ?? process.env.ANTHROPIC_API_KEY ?? ''
+
+    if (!apiKey) {
+      throw new Error(`AI API key not configured (provider=${provider})`)
+    }
+
+    console.log(`[ai.service] calling provider=${provider} model=${model} skills=${skills.length} rag=${ragHits}`)
 
     let result: { content: string; toolsInvoked: string[]; toolResults: Record<string, unknown> }
 
     if (provider === 'openai') {
-      result = await chatWithOpenAI(apiKey, model, SYSTEM_PROMPTS[channel], history, skills)
+      result = await chatWithOpenAI(apiKey, model, system, history, skills)
     } else {
-      result = await chatWithAnthropic(apiKey, model, SYSTEM_PROMPTS[channel], history, skills)
+      result = await chatWithAnthropic(apiKey, model, system, history, skills, userId)
     }
+
+    // 6. Guard: scan output for PII
+    result.content = scanOutput(result.content)
 
     history.push({ role: 'assistant', content: result.content })
     await saveHistory(userId, history)
 
-    return result
+    const latencyMs = Date.now() - startMs
+    console.log(`[ai.service] done latency=${latencyMs}ms tools=${result.toolsInvoked.join(',') || 'none'}`)
+
+    // 7. Fire-and-forget: log turn + extract preferences
+    internalClient.logTurn({
+      userId,
+      sessionId:         userId,
+      channel,
+      userMessage:       safeContent,
+      assistantResponse: result.content,
+      toolsCalled:       result.toolsInvoked,
+      ragHits,
+      latencyMs,
+      modelUsed:         model,
+      guardBlocked:      false,
+    })
+
+    userProfileService.extractAndUpdate(userId, safeContent, result.content)
+
+    return { ...result, guardBlocked: false, ragHits }
   },
 
   async clearHistory(userId: string): Promise<void> {
