@@ -5,8 +5,10 @@ const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 connection.on('error', (err) => console.error('[Queue/Redis] connection error:', err.message));
 
-export const orderQueue = new Queue('order-processing', { connection });
-export const notifierQueue = new Queue('notifications', { connection });
+// Cast needed: BullMQ bundles its own ioredis copy, causing TS2322 on the shared instance.
+const conn = connection as any;
+export const orderQueue = new Queue('order-processing', { connection: conn });
+export const notifierQueue = new Queue('notifications', { connection: conn });
 
 export interface OrderJobData {
   userId: string;
