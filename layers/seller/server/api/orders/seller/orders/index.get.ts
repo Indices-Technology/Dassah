@@ -10,5 +10,5 @@ export default defineEventHandler(async (event) => {
 
   const token = requireMarketXToken(event)
 
-  return fetchFromMarketX(`/sellers/${user.sellerId}/orders`, token)
+  return fetchFromMarketX(`/sellers/${user.sellerId}/orders`, token, undefined, event)
 })

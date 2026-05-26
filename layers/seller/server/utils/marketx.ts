@@ -6,16 +6,18 @@ import { H3Event, createError } from 'h3'
  * @param path      - API path, e.g. `/sellers/abc/analytics`
  * @param userToken - The caller's MarketX JWT (forwarded from the Nuxt request)
  * @param options   - Optional fetch overrides (method, body, etc.)
+ * @param event     - H3Event — used to read runtimeConfig with request context
  */
 export async function fetchFromMarketX(
   path: string,
   userToken: string,
   options?: RequestInit,
+  event?: H3Event,
 ): Promise<any> {
-  // useRuntimeConfig() reads from nuxt.config runtimeConfig — picks up Railway vars correctly.
-  const config = useRuntimeConfig()
-  const MARKETX_API_URL = config.marketxApiUrl || process.env.MARKETX_API_URL
-  const MARKETX_API_KEY = config.marketxApiKey || process.env.MARKETX_API_KEY
+  // useRuntimeConfig(event) is reliable in Nitro — picks up NUXT_ prefixed Railway vars.
+  const config = useRuntimeConfig(event as H3Event)
+  const MARKETX_API_URL = (config.marketxApiUrl as string) || process.env.MARKETX_API_URL
+  const MARKETX_API_KEY = (config.marketxApiKey as string) || process.env.MARKETX_API_KEY
 
   if (!MARKETX_API_URL || !MARKETX_API_KEY) {
     if (process.env.NODE_ENV !== 'production') {

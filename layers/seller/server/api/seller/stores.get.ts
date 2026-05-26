@@ -31,7 +31,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     // CP-2 — primary path: MarketX /api/seller/mine
-    const res = await fetchFromMarketX('/seller/mine', token)
+    const res = await fetchFromMarketX('/seller/mine', token, undefined, event)
     const stores: SellerStoreSummary[] = res?.data ?? []
     return { success: true, data: stores }
   } catch (err: any) {

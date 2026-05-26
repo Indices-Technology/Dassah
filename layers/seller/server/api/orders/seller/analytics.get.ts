@@ -21,5 +21,7 @@ export default defineEventHandler(async (event) => {
   return fetchFromMarketX(
     `/seller/${resolvedStoreId}/analytics?timeframe=${timeframe}`,
     token,
+    undefined,
+    event,
   )
 })
