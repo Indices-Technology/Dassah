@@ -1,86 +1,56 @@
-const BASE_URL = process.env.MARKETX_API_URL
-const API_KEY  = process.env.MARKETX_API_KEY
+const { api, resolveStore } = require('../_lib')
+
+// Maps a friendly timeframe to the endpoint's `days` window (clamped 7–90 server-side).
+const DAYS = { today: 7, week: 7, month: 30, all: 90 }
 
 module.exports = {
   channels: ['seller'],
-  description: "Retrieves the authenticated seller's sales metrics, revenue, and order counts.",
+  description:
+    "Get the seller's store analytics — revenue, orders, units sold, product views, " +
+    'impressions, a daily time-series chart, and a top-products breakdown. Use this for ' +
+    'any "how is my store doing / sales / performance / best sellers" question.',
   parameters: {
     type: 'object',
     properties: {
       timeframe: {
         type: 'string',
         enum: ['today', 'week', 'month', 'all'],
-        description: 'Time window for the report (default: week)',
+        description: 'Time window for the report (default: week).',
       },
     },
   },
 
   async execute(inputs, context) {
     const { timeframe = 'week' } = inputs
-    const userToken  = context?.userToken
-    const ctxSlug    = context?.storeSlug
+    const { slug } = await resolveStore(context)
+    const days = DAYS[timeframe] ?? 7
 
-    if (!userToken) throw new Error('Seller analytics requires an authenticated session.')
-
-    const headers = { 'X-API-Key': API_KEY, Authorization: `Bearer ${userToken}` }
-
-    // Step 1: resolve storeSlug — prefer session context (multi-store), fall back to profile
-    let storeSlug = ctxSlug
-    if (!storeSlug) {
-      const profileRes = await fetch(`${BASE_URL}/api/profile`, { headers })
-      if (!profileRes.ok) throw new Error(`Failed to load profile: ${profileRes.status}`)
-      const profileBody = await profileRes.json()
-      storeSlug = profileBody.data?.sellerProfile?.store_slug
-    }
-    if (!storeSlug) throw new Error('No seller store found for this account.')
-
-    // Step 2: date range
-    const now = new Date()
-    const startDate = new Date()
-    if (timeframe === 'today') startDate.setHours(0, 0, 0, 0)
-    else if (timeframe === 'week') startDate.setDate(startDate.getDate() - 7)
-    else if (timeframe === 'month') startDate.setMonth(startDate.getMonth() - 1)
-    else startDate.setFullYear(2000)
-
-    // Step 3: fetch seller orders (response: { data: { orders, total, limit, offset } })
-    const ordersRes = await fetch(
-      `${BASE_URL}/api/commerce/orders/seller?storeSlug=${encodeURIComponent(storeSlug)}&limit=100`,
-      { headers },
+    // GET /api/seller/analytics/{storeSlug}?days=N → { success, data: { summary, chart, topProducts } }
+    const body = await api(
+      `/api/seller/analytics/${encodeURIComponent(slug)}?days=${days}`,
+      { userToken: context?.userToken },
     )
-    if (!ordersRes.ok) throw new Error(`MarketX seller orders failed: ${ordersRes.status}`)
-    const ordersBody = await ordersRes.json()
-    const allOrders = ordersBody.data?.orders ?? []
-
-    const orders = allOrders.filter((o) => {
-      const d = new Date(o.created_at || o.createdAt)
-      return d >= startDate && d <= now
-    })
-
-    // Revenue is already in NGN (sellerBreakdown.net), not kobo
-    const totalRevenue = orders.reduce((s, o) => s + (o.sellerBreakdown?.net ?? 0), 0)
-    const totalOrders  = orders.length
-
-    // Step 4: wallet (response: { data: { wallet: { balance, pending_balance } } })
-    const walletRes = await fetch(`${BASE_URL}/api/commerce/wallet`, { headers })
-    let walletBalance = null
-    if (walletRes.ok) {
-      const walletBody = await walletRes.json()
-      const walletData = walletBody.data?.wallet ?? walletBody.data ?? {}
-      walletBalance = (walletData.balance ?? 0) / 100
-    }
+    const data = body.data ?? {}
+    const summary = data.summary ?? {}
 
     return {
-      period:            timeframe,
-      storeSlug,
-      startDate:         startDate.toISOString(),
-      endDate:           now.toISOString(),
-      totalRevenue,
-      totalOrders,
-      pendingOrders:     orders.filter((o) => o.status === 'PENDING').length,
-      completedOrders:   orders.filter((o) => o.status === 'COMPLETED').length,
-      walletBalance,
-      averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
-      currency:          'NGN',
+      storeSlug: slug,
+      timeframe,
+      days,
+      summary: {
+        revenue:       summary.revenue ?? 0,
+        orders:        summary.orders ?? 0,
+        unitsSold:     summary.unitsSold ?? 0,
+        views:         summary.views ?? 0,
+        impressions:   summary.impressions ?? 0,
+        affiliatePaid: summary.affiliatePaid ?? 0,
+        // conversion = orders / views, guarded
+        conversionRate:
+          summary.views > 0 ? +((summary.orders / summary.views) * 100).toFixed(2) : 0,
+      },
+      chart:       data.chart ?? [],       // [{ date, revenue, orders, unitsSold, views, impressions }]
+      topProducts: data.topProducts ?? [], // [{ productId, title, slug, thumbnail, revenue, unitsSold, ... }]
+      currency:    'NGN',
     }
   },
 }
