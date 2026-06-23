@@ -27,7 +27,14 @@ export async function fetchFromMarketX(
     throw createError({ statusCode: 500, statusMessage: 'MarketX not configured' })
   }
 
-  const res = await fetch(`${MARKETX_API_URL}${path}`, {
+  // Normalise so the MarketX `/api` prefix is present exactly once, whether the
+  // configured base URL already ends in `/api` or the caller's path includes it.
+  // (MarketX endpoints all live under `/api/...`; the skills use a bare host + `/api/...`.)
+  const base = (MARKETX_API_URL || '').replace(/\/+$/, '')
+  let p = path.startsWith('/') ? path : `/${path}`
+  if (!/\/api$/.test(base) && !p.startsWith('/api/')) p = `/api${p}`
+
+  const res = await fetch(`${base}${p}`, {
     ...options,
     headers: {
       'X-API-Key': MARKETX_API_KEY,

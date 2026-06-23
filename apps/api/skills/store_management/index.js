@@ -97,18 +97,26 @@ module.exports = {
       const product = detail.data ?? detail
       const current = Array.isArray(product.variants) ? product.variants : []
 
+      // Build a variant for the update body. Omit `price` when the source has none —
+      // the schema accepts an absent price but rejects `null`.
+      const mkVariant = (v, stock) => ({
+        size: v.size || 'Default',
+        stock,
+        ...(typeof v.price === 'number' ? { price: v.price } : {}),
+      })
+
       let variants
       if (current.length === 0) {
-        variants = [{ size: inputs.size || 'Default', stock: inputs.stock }]
+        variants = [mkVariant({ size: inputs.size }, inputs.stock)]
       } else if (inputs.size) {
         const match = current.find((v) => (v.size || '').toLowerCase() === inputs.size.toLowerCase())
         if (!match) {
           const sizes = current.map((v) => v.size).filter(Boolean).join(', ')
           throw new Error(`No variant "${inputs.size}". This product has: ${sizes || '(unnamed)'}.`)
         }
-        variants = current.map((v) => ({ size: v.size, price: v.price, stock: v === match ? inputs.stock : v.stock }))
+        variants = current.map((v) => mkVariant(v, v === match ? inputs.stock : v.stock))
       } else if (current.length === 1) {
-        variants = [{ size: current[0].size, price: current[0].price, stock: inputs.stock }]
+        variants = [mkVariant(current[0], inputs.stock)]
       } else {
         const sizes = current.map((v) => v.size).filter(Boolean).join(', ')
         throw new Error(`This product has multiple sizes (${sizes}). Tell me which size to set stock for.`)

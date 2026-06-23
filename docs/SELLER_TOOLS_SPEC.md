@@ -36,11 +36,24 @@ analytics → chart/summary card; orders → order cards; inventory → product 
 Tool results land in `toolResults[<name>]` for the UI to render (Claude path only —
 see findings A.4).
 
-## Status
-- [ ] seller_analytics rewrite
-- [ ] product_management
-- [ ] seller_orders
-- [ ] seller_wallet
-- [ ] store_profile
-- [ ] SELLER_BASE prompt update
-- [ ] test against staging
+## Status — tools
+- [x] seller_analytics rewrite
+- [x] store_management (product mgmt, variant-safe stock)
+- [x] seller_orders
+- [x] seller_wallet
+- [x] store_profile
+- [x] SELLER_BASE prompt update
+- [x] **Live integration test vs staging — all green** (`apps/api/test-seller-tools.cjs`).
+      Found + fixed: `set_stock` sent `price: null` (schema rejects null) → omit when absent.
+
+## Status — in-chat UI rendering
+The in-chat component (`layers/chat/components/chat/MessageBubble.vue`) only rendered
+**product cards** (+ payment / cart / quick-replies). Analytics/orders/wallet metadata was
+built server-side but never rendered, and the new seller tools weren't mapped into metadata.
+
+- [x] Wire new seller tools into `buildMessageMetadata` (`apps/api/src/index.ts`):
+      `store_management`→product cards, `seller_orders`→`meta.orders`, `seller_wallet`→`meta.wallet`.
+- [x] **AnalyticsCard.vue** — KPI grid + daily-revenue chart + top products; wired into MessageBubble.
+- [ ] **OrderList card** for `meta.orders` (seller orders) — metadata is wired; component TODO.
+- [ ] **WalletCard** for `meta.wallet` (balance/transactions/bank accounts) — metadata wired; component TODO.
+- [ ] Live UI smoke test (run the Nuxt stack, seller-mode chat).

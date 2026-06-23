@@ -18,6 +18,12 @@
         @approve="$emit('approve', message.metadata.approvalToken)"
       />
 
+      <!-- Seller analytics card -->
+      <AnalyticsCard
+        v-if="message.metadata?.analytics"
+        :analytics="message.metadata.analytics"
+      />
+
       <!-- Product cards -->
       <ProductList
         v-if="message.metadata?.products?.length"
@@ -55,6 +61,7 @@ import type { ChatMessage, ProductItem } from '../../composables/useChat'
 import PaymentPrompt from './PaymentPrompt.vue'
 import MarkdownText from './MarkdownText.vue'
 import ProductList from './ProductList.vue'
+import AnalyticsCard from './AnalyticsCard.vue'
 import QuickReplies from './QuickReplies.vue'
 
 const props = defineProps<{ message: ChatMessage }>()

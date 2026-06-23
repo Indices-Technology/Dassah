@@ -311,6 +311,26 @@ function buildMessageMetadata(
     meta.analytics = analyticsResult
   }
 
+  // Seller: product management → render as product cards
+  const storeMgmt = toolResults['store_management'] as { products?: any[] } | undefined
+  if (storeMgmt?.products?.length) {
+    meta.products = meta.products ?? storeMgmt.products.map((p) => ({
+      id: p.id, name: p.title, price: p.price, currency: 'NGN',
+      imageUrl: p.thumbnail, slug: p.slug, status: p.status, inStock: true,
+    }))
+    meta.sellerProducts = true
+  }
+
+  // Seller: incoming store orders
+  const sellerOrders = toolResults['seller_orders'] as { orders?: unknown[] } | undefined
+  if (sellerOrders?.orders) meta.orders = meta.orders ?? sellerOrders.orders
+
+  // Seller: wallet (balance / transactions / bank accounts)
+  const sellerWallet = toolResults['seller_wallet'] as Record<string, unknown> | undefined
+  if (sellerWallet && (sellerWallet.available !== undefined || sellerWallet.accounts || sellerWallet.transactions)) {
+    meta.wallet = meta.wallet ?? sellerWallet
+  }
+
   // Quick replies — prefer bullet options from the response, fall back to context-driven
   meta.quickReplies = deriveQuickReplies(toolsInvoked, meta, channel, responseContent)
 
