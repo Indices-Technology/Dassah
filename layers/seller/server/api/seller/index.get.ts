@@ -10,8 +10,8 @@
 // while the /mine endpoint is being deployed.
 
 import { defineEventHandler, createError } from 'h3'
-import { requireUser } from '~~/layers/core/server/utils/auth'
 import { fetchFromMarketX, requireMarketXToken } from '~~/layers/seller/server/utils/marketx'
+import { requireUser } from '../../../../core/server/utils/auth'
 
 export interface SellerStoreSummary {
   id: string

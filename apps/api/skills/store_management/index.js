@@ -1,48 +1,123 @@
-const BASE_URL = process.env.MARKETX_API_URL
-const API_KEY  = process.env.MARKETX_API_KEY
+const { api, resolveStore, naira } = require('../_lib')
+
+// Full product management for a seller's store: list, create, update price/status,
+// set stock (variant-safe), and archive. Stock on MarketX lives on VARIANTS and
+// updates upsert-by-size — so set_stock fetches the product first and resends the
+// FULL variant array (sending a partial array would delete the other sizes).
 
 module.exports = {
   channels: ['seller'],
-  description: "Updates a seller's product price or inventory level on MarketX.",
+  description:
+    "Manage the seller's products on MarketX: list their products, create a new one, " +
+    'update price or status (DRAFT/PUBLISHED/ARCHIVED), set stock for a product, or ' +
+    'archive a product. Stock is per size/variant.',
   parameters: {
     type: 'object',
     properties: {
-      action:    { type: 'string', enum: ['update_price', 'update_inventory'], description: 'Operation to perform' },
-      productId: { type: 'string', description: 'MarketX product ID' },
-      price:     { type: 'number', description: 'New price (required for update_price)' },
-      inventory: { type: 'number', description: 'New stock count (required for update_inventory)' },
+      action: {
+        type: 'string',
+        enum: ['list', 'create', 'update_price', 'update_status', 'set_stock', 'archive'],
+        description: 'Operation to perform.',
+      },
+      productId:   { type: 'string', description: 'Target product ID (required for everything except list/create).' },
+      status:      { type: 'string', enum: ['DRAFT', 'PUBLISHED', 'ARCHIVED'], description: 'For list (filter) or update_status.' },
+      title:       { type: 'string', description: 'Product title (create).' },
+      description: { type: 'string', description: 'Product description (create).' },
+      price:       { type: 'number', description: 'Price in naira (create / update_price).' },
+      stock:       { type: 'number', description: 'New stock count (create / set_stock).' },
+      size:        { type: 'string', description: 'Variant size/name for set_stock (omit if the product has a single variant).' },
     },
-    required: ['action', 'productId'],
+    required: ['action'],
   },
 
   async execute(inputs, context) {
-    const { action, productId, price, inventory } = inputs
+    const { action } = inputs
     const userToken = context?.userToken
 
-    if (!userToken) throw new Error('Store management requires an authenticated session.')
-
-    const headers = {
-      'X-API-Key': API_KEY,
-      Authorization: `Bearer ${userToken}`,
-      'Content-Type': 'application/json',
+    // ── list ──────────────────────────────────────────────────────────────────
+    if (action === 'list') {
+      const { id } = await resolveStore(context)
+      const status = inputs.status || 'PUBLISHED'
+      const body = await api(
+        `/api/commerce/products?sellerId=${encodeURIComponent(id)}&status=${status}&limit=50`,
+        { userToken },
+      )
+      const products = (body.data?.products ?? []).map((p) => ({
+        id:        p.id,
+        title:     p.title,
+        price:     p.price,
+        status:    p.status,
+        slug:      p.slug,
+        thumbnail: p.media?.[0]?.url ?? null,
+      }))
+      return { status, count: products.length, products, currency: 'NGN' }
     }
 
+    // ── create ────────────────────────────────────────────────────────────────
+    if (action === 'create') {
+      if (!inputs.title || inputs.price == null) {
+        throw new Error('Creating a product needs at least a title and a price.')
+      }
+      const payload = {
+        title:       inputs.title,
+        price:       inputs.price,
+        status:      inputs.status || 'DRAFT',
+        ...(inputs.description ? { description: inputs.description } : {}),
+        ...(inputs.stock != null ? { variants: [{ size: inputs.size || 'Default', stock: inputs.stock }] } : {}),
+      }
+      const body = await api('/api/commerce/products', { userToken, method: 'POST', body: payload })
+      const p = body.data ?? body
+      return { success: true, message: `Created "${inputs.title}" (${payload.status}).`, productId: p.id, status: payload.status }
+    }
+
+    // everything below needs a productId
+    if (!inputs.productId) throw new Error('That action needs a productId.')
+    const productId = inputs.productId
+
+    // ── update_price ──────────────────────────────────────────────────────────
     if (action === 'update_price') {
-      const res = await fetch(`${BASE_URL}/api/commerce/products/${productId}`, {
-        method: 'PATCH', headers, body: JSON.stringify({ price }),
-      })
-      if (!res.ok) throw new Error(`Price update failed: ${res.status}`)
-      return { success: true, message: `Price updated to ₦${price}` }
+      if (inputs.price == null) throw new Error('update_price needs a price.')
+      await api(`/api/commerce/products/${productId}`, { userToken, method: 'PATCH', body: { price: inputs.price } })
+      return { success: true, message: `Price updated to ${naira(inputs.price)}.` }
     }
 
-    if (action === 'update_inventory') {
-      const res = await fetch(`${BASE_URL}/api/commerce/products/${productId}`, {
-        method: 'PATCH', headers, body: JSON.stringify({ inventory: { available: inventory } }),
-      })
-      if (!res.ok) throw new Error(`Inventory update failed: ${res.status}`)
-      return { success: true, message: `Inventory updated to ${inventory} units` }
+    // ── update_status / archive ───────────────────────────────────────────────
+    if (action === 'update_status' || action === 'archive') {
+      const status = action === 'archive' ? 'ARCHIVED' : inputs.status
+      if (!status) throw new Error('update_status needs a status (DRAFT, PUBLISHED, or ARCHIVED).')
+      await api(`/api/commerce/products/${productId}`, { userToken, method: 'PATCH', body: { status } })
+      return { success: true, message: `Product is now ${status}.` }
     }
 
-    throw new Error('Invalid action. Supported: update_price, update_inventory')
+    // ── set_stock (variant-safe) ──────────────────────────────────────────────
+    if (action === 'set_stock') {
+      if (inputs.stock == null) throw new Error('set_stock needs a stock count.')
+      // Fetch current variants so we resend the full set (upsert-by-size deletes omitted sizes).
+      const detail = await api(`/api/commerce/products/${productId}`, { userToken })
+      const product = detail.data ?? detail
+      const current = Array.isArray(product.variants) ? product.variants : []
+
+      let variants
+      if (current.length === 0) {
+        variants = [{ size: inputs.size || 'Default', stock: inputs.stock }]
+      } else if (inputs.size) {
+        const match = current.find((v) => (v.size || '').toLowerCase() === inputs.size.toLowerCase())
+        if (!match) {
+          const sizes = current.map((v) => v.size).filter(Boolean).join(', ')
+          throw new Error(`No variant "${inputs.size}". This product has: ${sizes || '(unnamed)'}.`)
+        }
+        variants = current.map((v) => ({ size: v.size, price: v.price, stock: v === match ? inputs.stock : v.stock }))
+      } else if (current.length === 1) {
+        variants = [{ size: current[0].size, price: current[0].price, stock: inputs.stock }]
+      } else {
+        const sizes = current.map((v) => v.size).filter(Boolean).join(', ')
+        throw new Error(`This product has multiple sizes (${sizes}). Tell me which size to set stock for.`)
+      }
+
+      await api(`/api/commerce/products/${productId}`, { userToken, method: 'PATCH', body: { variants } })
+      return { success: true, message: `Stock set to ${inputs.stock}${inputs.size ? ` for size ${inputs.size}` : ''}.` }
+    }
+
+    throw new Error(`Unknown action: ${action}`)
   },
 }
