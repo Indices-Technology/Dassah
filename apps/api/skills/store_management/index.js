@@ -9,8 +9,9 @@ module.exports = {
   channels: ['seller'],
   description:
     "Manage the seller's products on MarketX: list their products, create a new one, " +
-    'update price or status (DRAFT/PUBLISHED/ARCHIVED), set stock for a product, or ' +
-    'archive a product. Stock is per size/variant.',
+    'update price or status (DRAFT/PUBLISHED/ARCHIVED), set or add stock for a product, ' +
+    'or archive a product. Stock is per size/variant: set_stock updates an existing size, ' +
+    'or ADDS a new size (e.g. "add US size 32 - 10 pcs") if it does not exist yet.',
   parameters: {
     type: 'object',
     properties: {
@@ -25,7 +26,7 @@ module.exports = {
       description: { type: 'string', description: 'Product description (create).' },
       price:       { type: 'number', description: 'Price in naira (create / update_price).' },
       stock:       { type: 'number', description: 'New stock count (create / set_stock).' },
-      size:        { type: 'string', description: 'Variant size/name for set_stock (omit if the product has a single variant).' },
+      size:        { type: 'string', description: 'Variant size/name for set_stock. If the size already exists its stock is updated; if it is new it is added as a new variant. Omit only if the product has a single unnamed variant.' },
     },
     required: ['action'],
   },
@@ -106,15 +107,31 @@ module.exports = {
       })
 
       let variants
+      let addedNewSize = false
       if (current.length === 0) {
         variants = [mkVariant({ size: inputs.size }, inputs.stock)]
+        addedNewSize = !!inputs.size
       } else if (inputs.size) {
         const match = current.find((v) => (v.size || '').toLowerCase() === inputs.size.toLowerCase())
-        if (!match) {
-          const sizes = current.map((v) => v.size).filter(Boolean).join(', ')
-          throw new Error(`No variant "${inputs.size}". This product has: ${sizes || '(unnamed)'}.`)
+        if (match) {
+          // Existing size → update its stock, resend the rest unchanged.
+          variants = current.map((v) => mkVariant(v, v === match ? inputs.stock : v.stock))
+        } else {
+          // New size → add it. MarketX upserts variants by size and creates new ones,
+          // so we append it to the full set. Inherit a price (from an existing variant
+          // or the product) so the variant is valid and sellable.
+          const inheritedPrice = current.find((v) => typeof v.price === 'number')?.price
+            ?? (typeof product.price === 'number' ? product.price : undefined)
+          variants = [
+            ...current.map((v) => mkVariant(v, v.stock)),
+            {
+              size: inputs.size,
+              stock: inputs.stock,
+              ...(typeof inheritedPrice === 'number' ? { price: inheritedPrice } : {}),
+            },
+          ]
+          addedNewSize = true
         }
-        variants = current.map((v) => mkVariant(v, v === match ? inputs.stock : v.stock))
       } else if (current.length === 1) {
         variants = [mkVariant(current[0], inputs.stock)]
       } else {
@@ -123,7 +140,12 @@ module.exports = {
       }
 
       await api(`/api/commerce/products/${productId}`, { userToken, method: 'PATCH', body: { variants } })
-      return { success: true, message: `Stock set to ${inputs.stock}${inputs.size ? ` for size ${inputs.size}` : ''}.` }
+      return {
+        success: true,
+        message: addedNewSize
+          ? `Added size ${inputs.size} with ${inputs.stock} units in stock.`
+          : `Stock set to ${inputs.stock}${inputs.size ? ` for size ${inputs.size}` : ''}.`,
+      }
     }
 
     throw new Error(`Unknown action: ${action}`)

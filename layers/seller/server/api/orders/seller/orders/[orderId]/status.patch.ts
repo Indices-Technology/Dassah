@@ -1,19 +1,29 @@
+// PATCH /api/orders/seller/orders/{orderId}/status
+// Advance an order's status (CONFIRMED / SHIPPED / DELIVERED / CANCELLED).
+//
+// MarketX endpoint: PATCH /api/commerce/orders/{orderId}/status
+// Body: { status, trackingNumber?, shipper? } — the seller is identified from the
+// token, NOT from a sellerId in the body (MarketX JWTs don't carry sellerId).
+
 import { defineEventHandler, createError, getRouterParam, readBody } from 'h3'
 import { requireUser } from '~~/layers/core/server/utils/auth'
 import { fetchFromMarketX, requireMarketXToken } from '~~/layers/seller/server/utils/marketx'
 
 export default defineEventHandler(async (event) => {
-  const user = requireUser(event) as any
-  if (!user.sellerId) {
-    throw createError({ statusCode: 403, statusMessage: 'User is not a seller' })
-  }
-
+  requireUser(event)
   const token = requireMarketXToken(event)
   const orderId = getRouterParam(event, 'orderId')
-  const { status } = await readBody(event)
+  if (!orderId) throw createError({ statusCode: 400, statusMessage: 'orderId is required' })
 
-  return fetchFromMarketX(`/orders/${orderId}/status`, token, {
+  const { status, trackingNumber, shipper } = await readBody(event)
+  if (!status) throw createError({ statusCode: 400, statusMessage: 'status is required' })
+
+  return fetchFromMarketX(`/commerce/orders/${orderId}/status`, token, {
     method: 'PATCH',
-    body: JSON.stringify({ sellerId: user.sellerId, status }),
-  })
+    body: JSON.stringify({
+      status,
+      ...(trackingNumber ? { trackingNumber } : {}),
+      ...(shipper ? { shipper } : {}),
+    }),
+  }, event)
 })
