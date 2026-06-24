@@ -130,5 +130,18 @@ watch(() => messages.value.length, async () => {
 
 onMounted(() => {
   setupListeners()
+  // The socket connects once at the app level and emits `chat:history` only on
+  // that initial connect. If it's already connected when this view mounts (e.g.
+  // navigating back from seller mode), that event won't re-fire — request the
+  // history explicitly so the conversation isn't blank until a full refresh.
+  if (socket.value?.connected) {
+    socket.value.emit('chat:load', { sessionId: sessionId.value ?? '' })
+  }
+})
+
+// If the socket was still connecting at mount ("Connecting…"), pull history the
+// moment it comes online.
+watch(isConnected, (connected) => {
+  if (connected) socket.value?.emit('chat:load', { sessionId: sessionId.value ?? '' })
 })
 </script>
