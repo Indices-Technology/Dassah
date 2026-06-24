@@ -82,7 +82,9 @@ function onClickDelegate(e: MouseEvent) {
   @apply flex flex-wrap gap-2 my-2;
 }
 .markdown-text :deep(.chat-chip) {
-  @apply inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium
+  /* inline-block (not inline-flex): a flex container collapses the whitespace
+     between <strong> and the following text, producing "trendingon MarketX". */
+  @apply inline-block px-3 py-1.5 rounded-full text-sm font-medium
          bg-gray-100 text-gray-700 border border-gray-200
          cursor-pointer select-none transition-colors;
 }

@@ -1,13 +1,14 @@
 // GET /api/seller/stores
 // CP-2: Fetch all SellerProfiles owned by the authenticated MarketX user.
 //
+// NOTE: this file MUST be named `stores.get.ts` (→ /api/seller/stores). As
+// `index.get.ts` it mapped to /api/seller and the client's /api/seller/stores 404'd.
+//
 // MarketX dependency: GET /api/seller/mine
-//   → returns { success: true, data: SellerProfile[] } for the authenticated user
-//   → Must exist on MarketX (add layers/seller/server/api/seller/mine.get.ts there)
+//   → returns { success: true, data: SellerProfile[] } for the authenticated user.
 //
 // Fallback for single-store accounts: if the MarketX token carries a sellerId
-// claim in the JWT payload, we synthesise a one-item list so the UI still works
-// while the /mine endpoint is being deployed.
+// claim in the JWT payload, we synthesise a one-item list so the UI still works.
 
 import { defineEventHandler, createError } from 'h3'
 import { fetchFromMarketX, requireMarketXToken } from '~~/layers/seller/server/utils/marketx'
@@ -25,17 +26,16 @@ export interface SellerStoreSummary {
 }
 
 export default defineEventHandler(async (event) => {
-  // CP-2 — auth
   const user = requireUser(event) as any
   const token = requireMarketXToken(event)
 
   try {
-    // CP-2 — primary path: MarketX /api/seller/mine
+    // Primary path: MarketX /api/seller/mine (the marketx util prepends /api).
     const res = await fetchFromMarketX('/seller/mine', token, undefined, event)
     const stores: SellerStoreSummary[] = res?.data ?? []
     return { success: true, data: stores }
   } catch (err: any) {
-    // CP-2 fallback: if MarketX /mine not yet deployed, synthesise from JWT claim
+    // Fallback: synthesise from JWT claims if /mine is unreachable.
     if (user.sellerId && user.storeName && user.storeSlug) {
       return {
         success: true,
@@ -52,7 +52,6 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // CP-2 — genuine failure: propagate so client can show retry state
     throw createError({
       statusCode: err.statusCode ?? 502,
       statusMessage: err.statusMessage ?? 'Could not load your stores from MarketX',

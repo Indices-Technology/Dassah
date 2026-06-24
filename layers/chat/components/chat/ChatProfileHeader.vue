@@ -191,6 +191,10 @@ function setMode(mode: 'buyer' | 'seller') {
   } else {
     sessionMode.value = 'buyer'
     socket.value?.emit('session:type', 'buyer')
+    // Socket stays connected on a mode switch, so the connect-time `chat:history`
+    // never re-fires — explicitly re-request it, or the conversation looks empty
+    // until a full refresh+reconnect.
+    socket.value?.emit('chat:load', { sessionId: '' })
   }
 }
 
