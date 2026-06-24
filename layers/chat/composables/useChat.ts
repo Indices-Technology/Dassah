@@ -114,5 +114,15 @@ export const useChat = () => {
     sessionId.value = null
   }
 
-  return { messages, isTyping, sessionId, setupListeners, sendMessage, approvePayment, clearMessages }
+  // Re-fetch the conversation history from the server (server replies with
+  // `chat:history`, handled by the listener above). Call this when switching
+  // buyer/seller mode or when selecting a conversation from the sidebar —
+  // otherwise `messages` only ever loads once, on socket connect.
+  const loadConversation = (targetSessionId?: string) => {
+    if (!socket.value) return
+    if (targetSessionId) sessionId.value = targetSessionId
+    socket.value.emit('chat:load', { sessionId: targetSessionId ?? sessionId.value })
+  }
+
+  return { messages, isTyping, sessionId, setupListeners, sendMessage, approvePayment, clearMessages, loadConversation }
 }
