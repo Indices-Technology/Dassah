@@ -23,6 +23,7 @@ function mapStore(s) {
     slug:        s.store_slug,
     description: s.store_description ?? null,
     logo:        s.store_logo ?? null,
+    profileUrl:  `${BASE_URL}/sellers/profile/${s.store_slug}`,
   }
 }
 

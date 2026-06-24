@@ -246,10 +246,20 @@ function buildMessageMetadata(
   const meta: Record<string, unknown> = { toolsInvoked }
 
   // Products from marketplace search
-  const marketxResult = toolResults['marketx'] as { products?: unknown[]; total?: number } | undefined
+  const marketxResult = toolResults['marketx'] as { products?: unknown[]; stores?: unknown[]; total?: number } | undefined
   if (marketxResult?.products?.length) {
     meta.products = marketxResult.products
   }
+  // Stores surfaced by search (e.g. "abaya" → the store that sells it) — render
+  // as clickable store cards so the user can open the profile or browse products.
+  if (marketxResult?.stores?.length) {
+    meta.stores = marketxResult.stores
+  }
+
+  // view_store — a specific store's profile + its products (clicked from a store card)
+  const viewStore = toolResults['view_store'] as { store?: unknown; products?: unknown[] } | undefined
+  if (viewStore?.store) meta.stores = meta.stores ?? [viewStore.store]
+  if (viewStore?.products?.length) meta.products = meta.products ?? viewStore.products
 
   // Cart state
   const cartResult = toolResults['cart'] as

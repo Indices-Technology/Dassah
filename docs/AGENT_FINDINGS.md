@@ -58,12 +58,24 @@ Ranked by value.
 - [ ] **Auth bridge (act AS the user).** Confirm the MarketX SSO/token path so tools
       hit the *user's own* data (the MarketX `auth.ts` / SSO item was unchecked).
       Required for real per-user seller management.
-- [x] **Seller store-picker 404 (`/api/seller/stores`).** Two issues:
-      (1) **stale Dassah deploy** — the route 404s on `dasah.indicestech.com`
-      (MarketX `/api/seller/mine` is live = 401; Dassah `/api/seller/stores` = 404) →
-      **redeploy Dassah**; (2) **fixed latent bug** — `fetchFromMarketX` did
-      `${BASE}${path}` with no `/api` prefix (callers pass `/seller/mine`), now
-      normalised to inject `/api` exactly once (`layers/seller/server/utils/marketx.ts`).
+- [x] **Seller store-picker (`/api/seller/stores`).** Three layered causes, all found
+      by walking 404 → 500:
+      (1) **route filename** — the handler was `seller/index.get.ts` (→ `/api/seller`),
+      but the client calls `/api/seller/stores` → 404. Renamed to `seller/stores.get.ts`.
+      (2) **`fetchFromMarketX` `/api` prefix** — did `${BASE}${path}` with no `/api`
+      (callers pass `/seller/mine`); now injects `/api` once (`utils/marketx.ts`).
+      (3) **missing env on the UI deployment** — after (1)+(2) it returned **500**
+      ("MarketX not configured", masked by Nitro to "Server Error"). The Nuxt UI
+      deployment lacks `MARKETX_API_URL` / `MARKETX_API_KEY` (the Socket.IO `apps/api`
+      deploy has them, which is why buyer chat works). **Fix = set those env vars (or
+      `NUXT_MARKETX_API_URL`/`_KEY`) on the UI deploy.** Added `console.error` in the
+      route so the real cause shows in deploy logs.
+- [x] **Store discovery from chat (search → store → products).** Product search is
+      title/description-only, so "abaya" missed the *store* "Grandeur Wears and Abaya".
+      `marketx` tool now also queries `/api/search?type=stores` and returns `stores[]`;
+      new **`view_store`** skill returns a store's profile + products (by-slug + by
+      sellerId). UI: **`StoreCard.vue`** (clickable — "View products" → `view_store`
+      via `storeSlug:` pattern; "Profile" → `/sellers/profile/{slug}`). Buyer rules 15–16.
 - [ ] **Refresh stale docs.** Rewrite `ARCHITECTURE.md` (ADR-001) + `CLAUDE.md` to
       describe the real Claude tool-use agent, not OpenClaw.
 

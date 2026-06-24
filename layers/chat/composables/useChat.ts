@@ -18,9 +18,22 @@ export interface CartState {
   count: number
 }
 
+export interface StoreItem {
+  id: string
+  name: string
+  slug: string
+  description?: string | null
+  logo?: string | null
+  location?: string | null
+  verified?: boolean
+  productCount?: number
+  profileUrl?: string
+}
+
 export interface ChatMessageMetadata {
   toolsInvoked?: string[]
   products?: ProductItem[]
+  stores?: StoreItem[]
   cart?: CartState
   cartUpdate?: { success: boolean; message: string }
   orderTracking?: unknown

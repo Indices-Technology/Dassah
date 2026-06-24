@@ -24,6 +24,13 @@
         :analytics="message.metadata.analytics"
       />
 
+      <!-- Store cards (search surfaced a store, or a store was opened) -->
+      <StoreCard
+        v-if="message.metadata?.stores?.length"
+        :stores="message.metadata.stores"
+        @select="$emit('quickReply', $event)"
+      />
+
       <!-- Product cards -->
       <ProductList
         v-if="message.metadata?.products?.length"
@@ -61,6 +68,7 @@ import type { ChatMessage, ProductItem } from '../../composables/useChat'
 import PaymentPrompt from './PaymentPrompt.vue'
 import MarkdownText from './MarkdownText.vue'
 import ProductList from './ProductList.vue'
+import StoreCard from './StoreCard.vue'
 import AnalyticsCard from './AnalyticsCard.vue'
 import QuickReplies from './QuickReplies.vue'
 
@@ -80,7 +88,7 @@ const alignmentClass = computed(() => {
 // Bot messages with products need more width to show the cards
 const widthClass = computed(() => {
   if (props.message.role === 'system') return 'max-w-full'
-  if (props.message.role === 'bot' && props.message.metadata?.products?.length) return 'w-full max-w-[95%]'
+  if (props.message.role === 'bot' && (props.message.metadata?.products?.length || props.message.metadata?.stores?.length)) return 'w-full max-w-[95%]'
   return 'max-w-[85%] sm:max-w-[75%]'
 })
 

@@ -52,6 +52,12 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    // Surface the real cause in deploy logs — Nitro masks 5xx messages to a
+    // generic "Server Error" in production, so the client never sees this.
+    // Most common cause: MARKETX_API_URL / MARKETX_API_KEY missing on the UI
+    // deployment (→ "MarketX not configured" thrown from fetchFromMarketX).
+    console.error('[seller/stores] failed:', err?.statusCode, err?.statusMessage || err?.message)
+
     throw createError({
       statusCode: err.statusCode ?? 502,
       statusMessage: err.statusMessage ?? 'Could not load your stores from MarketX',
