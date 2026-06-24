@@ -1,7 +1,9 @@
 import { H3Event, getHeader, createError } from 'h3'
 import process from 'process'
 // @ts-ignore: jsonwebtoken types not installed
-const jwt = require('jsonwebtoken')
+// Must be an ESM import — Nitro bundles server code to .mjs where `require` is
+// undefined, so `const jwt = require('jsonwebtoken')` crashes at module load (500).
+import jwt from 'jsonwebtoken'
 
 export function getUserFromEvent(event: H3Event): { id: string; [key: string]: any } | null {
   const authHeader = getHeader(event, 'Authorization')
