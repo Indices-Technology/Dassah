@@ -36,7 +36,7 @@
       <div class="flex flex-shrink-0 flex-col gap-1">
         <button
           class="rounded-full bg-[#e52033] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#c91b2c]"
-          @click="$emit('select', `Browse products from \"${store.name}\" — storeSlug: ${store.slug}`)"
+          @click="browse(store)"
         >
           View products
         </button>
@@ -58,7 +58,11 @@
 import type { StoreItem } from '../../composables/useChat'
 
 defineProps<{ stores: StoreItem[] }>()
-defineEmits<{ select: [text: string] }>()
+const emit = defineEmits<{ select: [text: string] }>()
+
+function browse(store: StoreItem) {
+  emit('select', `Browse products from "${store.name}" — storeSlug: ${store.slug}`)
+}
 
 function onLogoError(e: Event) {
   ;(e.target as HTMLImageElement).style.display = 'none'
