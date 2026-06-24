@@ -18,10 +18,37 @@
         @approve="$emit('approve', message.metadata.approvalToken)"
       />
 
+      <!-- Grounded confirmation (real before→after, nothing applied yet) -->
+      <ConfirmActionCard
+        v-if="message.metadata?.actionPreview"
+        :preview="message.metadata.actionPreview"
+        @select="$emit('quickReply', $event)"
+      />
+
+      <!-- Verified action outcome (authoritative — from read-after-write, not the text) -->
+      <ActionResultCard
+        v-if="message.metadata?.actionResult"
+        :result="message.metadata.actionResult"
+      />
+
       <!-- Seller analytics card -->
       <AnalyticsCard
         v-if="message.metadata?.analytics"
         :analytics="message.metadata.analytics"
+      />
+
+      <!-- Seller orders -->
+      <OrderList
+        v-if="message.metadata?.orders?.length"
+        :orders="message.metadata.orders"
+        @select="$emit('quickReply', $event)"
+      />
+
+      <!-- Seller wallet -->
+      <WalletCard
+        v-if="message.metadata?.wallet"
+        :wallet="message.metadata.wallet"
+        @select="$emit('quickReply', $event)"
       />
 
       <!-- Store cards (search surfaced a store, or a store was opened) -->
@@ -69,7 +96,11 @@ import PaymentPrompt from './PaymentPrompt.vue'
 import MarkdownText from './MarkdownText.vue'
 import ProductList from './ProductList.vue'
 import StoreCard from './StoreCard.vue'
+import ConfirmActionCard from './ConfirmActionCard.vue'
+import ActionResultCard from './ActionResultCard.vue'
 import AnalyticsCard from './AnalyticsCard.vue'
+import OrderList from './OrderList.vue'
+import WalletCard from './WalletCard.vue'
 import QuickReplies from './QuickReplies.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
@@ -88,7 +119,7 @@ const alignmentClass = computed(() => {
 // Bot messages with products need more width to show the cards
 const widthClass = computed(() => {
   if (props.message.role === 'system') return 'max-w-full'
-  if (props.message.role === 'bot' && (props.message.metadata?.products?.length || props.message.metadata?.stores?.length)) return 'w-full max-w-[95%]'
+  if (props.message.role === 'bot' && (props.message.metadata?.products?.length || props.message.metadata?.stores?.length || props.message.metadata?.orders?.length || props.message.metadata?.wallet || props.message.metadata?.analytics)) return 'w-full max-w-[95%]'
   return 'max-w-[85%] sm:max-w-[75%]'
 })
 

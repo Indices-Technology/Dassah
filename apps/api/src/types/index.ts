@@ -43,7 +43,7 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   'session:type': (type: 'buyer' | 'seller') => void
   'session:store': (payload: { storeId: string; storeName: string; storeSlug: string }) => void
-  'chat:send': (payload: { content: string; sessionId: string }) => void
+  'chat:send': (payload: { content: string; sessionId: string; attachments?: Array<{ url: string; public_id: string; type?: string }> }) => void
   'chat:new': () => void
   'chat:load': (payload: { sessionId: string }) => void
   'payment:approve': (payload: { approvalToken: string; sessionId: string }) => void

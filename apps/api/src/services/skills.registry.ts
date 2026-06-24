@@ -18,7 +18,7 @@ interface SkillModule {
   channels: SkillChannel[]
   description: string
   parameters: Record<string, any>
-  execute: (inputs: Record<string, unknown>, context: { userToken: string; storeId?: string; storeSlug?: string }) => Promise<unknown>
+  execute: (inputs: Record<string, unknown>, context: { userToken: string; storeId?: string; storeSlug?: string; attachments?: unknown[] }) => Promise<unknown>
 }
 
 // ── Discovery ─────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ function loadSkillModule(skillName: string): SkillModule {
  * Load all skills for a given channel. Context is closed over in each
  * entry's execute function, enabling hot-swap within the same turn.
  */
-export function loadSkills(channel: Channel, context: { userToken: string; storeId?: string; storeSlug?: string }): SkillEntry[] {
+export function loadSkills(channel: Channel, context: { userToken: string; storeId?: string; storeSlug?: string; attachments?: unknown[] }): SkillEntry[] {
   // Seller mode loads both seller AND buyer skills — sellers can also shop.
   const allowedChannels: SkillChannel[] = channel === 'dassai-seller-web'
     ? ['seller', 'buyer']

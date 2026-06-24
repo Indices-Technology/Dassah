@@ -230,7 +230,35 @@
 
       <!-- ── Input bar (only when store selected) ───────────────────────── -->
       <div v-if="activeStore" class="shrink-0 bg-slate-900 border-t border-white/[0.05] px-4 py-3">
-        <div class="flex items-center gap-2 max-w-2xl mx-auto">
+        <div class="max-w-2xl mx-auto">
+          <!-- Pending image uploads -->
+          <div v-if="pendingImages.length || uploadingImage" class="flex gap-2 mb-2">
+            <div v-for="(a, i) in pendingImages" :key="a.public_id" class="relative">
+              <img :src="a.url" class="h-14 w-14 rounded-lg object-cover border border-slate-700" />
+              <button
+                type="button"
+                class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-slate-700 text-xs text-white"
+                @click="pendingImages.splice(i, 1)"
+              >×</button>
+            </div>
+            <div v-if="uploadingImage" class="flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-slate-700 text-xs text-slate-500">
+              uploading…
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <input ref="imageInput" type="file" accept="image/*" class="hidden" @change="onImageSelect" />
+            <button
+              type="button"
+              :disabled="!isConnected || uploadingImage"
+              class="shrink-0 p-1 text-slate-400 transition hover:text-[#e52033] disabled:opacity-50"
+              title="Attach product image"
+              @click="imageInput?.click()"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-5 w-5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+              </svg>
+            </button>
           <input
             v-model="inputText"
             @keyup.enter="handleSend"
@@ -240,13 +268,14 @@
           />
           <button
             @click="handleSend"
-            :disabled="!isConnected || !inputText.trim()"
+            :disabled="!isConnected || (!inputText.trim() && !pendingImages.length) || uploadingImage"
             class="bg-[#e52033] text-white rounded-2xl p-2.5 flex items-center justify-center disabled:opacity-40 hover:bg-[#c01020] active:scale-90 transition-all shadow-sm shadow-[#e52033]/30 shrink-0"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5 ml-0.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
             </svg>
           </button>
+          </div>
         </div>
       </div>
 
@@ -299,6 +328,9 @@ const quickChips = [
 // ── Store selection ───────────────────────────────────────────────────────────
 
 function onStoreSelect(store: SellerStoreSummary) {
+  // No-op if re-selecting the store we're already on.
+  if (activeStore.value?.id === store.id) return
+
   setActiveStore(store.id)
   // Inform the AI worker which store context we're in
   socket.value?.emit('session:store', {
@@ -306,6 +338,13 @@ function onStoreSelect(store: SellerStoreSummary) {
     storeName: store.store_name,
     storeSlug: store.store_slug,
   })
+
+  // A different store is a different context. History is one rolling log per user,
+  // so reset the chat — clear what's on screen and start a fresh conversation —
+  // otherwise the previous store's messages bleed into this store's answers.
+  clearMessages()
+  socket.value?.emit('chat:new')
+  conversationTitled = false
 }
 
 // ── Conversation management ───────────────────────────────────────────────────
@@ -339,10 +378,38 @@ function clearAllConversations() {
 
 // ── Chat helpers ──────────────────────────────────────────────────────────────
 
+// ── Image upload (attach to a product on create) ──────────────────────────────
+interface PendingImage { url: string; public_id: string; type?: string }
+const imageInput = ref<HTMLInputElement | null>(null)
+const pendingImages = ref<PendingImage[]>([])
+const uploadingImage = ref(false)
+
+async function onImageSelect(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  uploadingImage.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await $fetch<{ data?: PendingImage }>('/api/media/upload', {
+      method: 'POST',
+      body: fd,
+      headers: { Authorization: `Bearer ${token.value}` },
+    })
+    if (res?.data?.url) pendingImages.value.push(res.data)
+  } catch (err) {
+    console.error('[upload] failed', err)
+  } finally {
+    uploadingImage.value = false
+    if (imageInput.value) imageInput.value.value = ''
+  }
+}
+
 function handleSend() {
-  if (!inputText.value.trim() || !isConnected.value) return
-  sendMessage(inputText.value.trim())
+  if ((!inputText.value.trim() && !pendingImages.value.length) || !isConnected.value || uploadingImage.value) return
+  sendMessage(inputText.value.trim(), pendingImages.value.length ? [...pendingImages.value] : undefined)
   inputText.value = ''
+  pendingImages.value = []
 }
 
 function sendQuickAction(prompt: string) {

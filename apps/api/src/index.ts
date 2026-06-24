@@ -126,7 +126,7 @@ io.on('connection', async (socket) => {
     console.log(`[Socket] user ${userId} loaded conversation: ${targetSessionId}`)
   })
 
-  socket.on('chat:send', async ({ content }) => {
+  socket.on('chat:send', async ({ content, attachments }) => {
     socket.emit('chat:typing', true)
     const reqId = randomUUID().slice(0, 8)
 
@@ -146,18 +146,27 @@ io.on('connection', async (socket) => {
         userAIConfig: session!.userAIConfig ?? null,
         storeId:      socket.data.storeId,
         storeSlug:    socket.data.storeSlug,
+        attachments:  Array.isArray(attachments) ? attachments : undefined,
       })
 
       console.log(`[chat:${reqId}] ok tools=${response.toolsInvoked.join(',') || 'none'} rag=${response.ragHits} blocked=${response.guardBlocked}`)
 
       const metadata = buildMessageMetadata(response.toolsInvoked, response.toolResults, channel, response.content)
 
+      // Guard: the authoritative outcome wins over the agent's prose. If a mutation
+      // failed verification, replace the message text with the verified failure line
+      // so the agent can never narrate a success (or a fabricated cause) that didn't
+      // happen. The result card already shows the truth; this keeps the words honest too.
+      let outContent = response.content
+      const ar = metadata.actionResult as { success?: boolean; display?: string } | undefined
+      if (ar && ar.success === false && ar.display) outContent = ar.display
+
       socket.emit('chat:typing', false)
       socket.emit('chat:message', {
         id:        randomUUID(),
         sessionId: userId,
         role:      'bot',
-        content:   response.content,
+        content:   outContent,
         metadata,
         createdAt: new Date(),
       })
@@ -322,13 +331,22 @@ function buildMessageMetadata(
   }
 
   // Seller: product management → render as product cards
-  const storeMgmt = toolResults['store_management'] as { products?: any[] } | undefined
+  const storeMgmt = toolResults['store_management'] as { products?: any[]; kind?: string } | undefined
   if (storeMgmt?.products?.length) {
     meta.products = meta.products ?? storeMgmt.products.map((p) => ({
       id: p.id, name: p.title, price: p.price, currency: 'NGN',
       imageUrl: p.thumbnail, slug: p.slug, status: p.status, inStock: true,
     }))
     meta.sellerProducts = true
+  }
+
+  // Verified mutation result (set_stock, price, status, …) — the AUTHORITATIVE outcome,
+  // rendered by the UI from read-after-write data, not from the agent's prose. A
+  // `preview` is the grounded before→after shown for confirmation (nothing applied yet).
+  for (const r of Object.values(toolResults)) {
+    const m = r as { kind?: string } | undefined
+    if (m?.kind === 'mutation') { meta.actionResult = m; break }
+    if (m?.kind === 'preview')  { meta.actionPreview = m; break }
   }
 
   // Seller: incoming store orders
@@ -347,12 +365,26 @@ function buildMessageMetadata(
   return meta
 }
 
+// Detects when the bot is asking the user to confirm a pending action
+// ("Just to confirm…", "Shall I go ahead?", "go ahead and save this?").
+function isConfirmationPrompt(text: string): boolean {
+  return /\bgo ahead\b|just to confirm|shall i (save|update|proceed)|should i (save|update|proceed)/i.test(text)
+}
+
 function deriveQuickReplies(
   toolsInvoked: string[],
   meta: Record<string, unknown>,
   channel: string,
   responseContent = '',
 ): string[] {
+  // If the model wrote its own options as bullets, MarkdownText already renders them
+  // as tappable chips — so we must NOT repeat them here (that produced duplicate
+  // buttons). When there are no bullets but the bot is asking for confirmation,
+  // offer Yes/No so the user can tap instead of typing "yes".
+  const bullets = extractBulletOptions(responseContent)
+  if (bullets.length) return []
+  if (isConfirmationPrompt(responseContent)) return ['Yes, go ahead', 'No, cancel']
+
   if (channel === 'dassai-seller-web') {
     // Seller-specific tools take priority
     if (toolsInvoked.includes('seller_analytics')) return ['This month', 'Today', 'All time', 'Show orders']
@@ -361,8 +393,7 @@ function deriveQuickReplies(
     if (meta.products)    return ['Show more results', 'Add to cart', 'View cart', 'Search something else']
     if (meta.cart)        return ['Checkout', 'Remove item', 'Continue shopping']
     if (meta.cartUpdate)  return ['View cart', 'Checkout now', 'Continue shopping']
-    const bullets = extractBulletOptions(responseContent)
-    return bullets.length ? bullets : ['View analytics', 'Manage inventory', 'View orders']
+    return ['View analytics', 'Manage inventory', 'View orders']
   }
 
   if (meta.isDeals)      return ['Add to cart', 'View cart', 'Show more deals', 'Search products']
@@ -374,10 +405,6 @@ function deriveQuickReplies(
   if (meta.orders)       return ['View order details', 'Track my order', 'Contact support']
   if (meta.wallet)       return ['Add funds', 'View transactions', 'View orders', 'View cart']
   if (meta.orderTracking) return ['Contact support', 'View all orders']
-
-  // No tool context — use bullet options from the AI's response if present
-  const bullets = extractBulletOptions(responseContent)
-  if (bullets.length) return bullets
 
   return ['Browse products', 'View cart', 'Track my order']
 }

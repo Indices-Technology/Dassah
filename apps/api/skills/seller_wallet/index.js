@@ -1,4 +1,4 @@
-const { api, resolveStore, kobo } = require('../_lib')
+const { api, resolveStore, kobo, naira, verifiedMutation, previewResult } = require('../_lib')
 
 // Seller wallet & payouts. Balances are stored in KOBO (÷100 for ₦). The withdraw
 // endpoint compares `balance >= amount` on the kobo balance, so `amount` is sent in
@@ -21,6 +21,7 @@ module.exports = {
       amount:        { type: 'number', description: 'Amount in NAIRA (payout_preview / withdraw).' },
       bankAccountId: { type: 'string', description: 'Saved bank account ID to pay out to (withdraw).' },
       limit:         { type: 'number', description: 'Max transactions to list (default 20).' },
+      preview:       { type: 'boolean', description: 'For withdraw: if true, return the real balance before→after WITHOUT moving money, so the seller can confirm. Apply on a second call with preview omitted.' },
     },
   },
 
@@ -93,18 +94,54 @@ module.exports = {
       }
     }
 
-    // ── withdraw (money movement — confirm before calling) ──────────────────────
+    // ── withdraw (money movement — verified) ────────────────────────────────────
     if (action === 'withdraw') {
       if (inputs.amount == null) throw new Error('A withdrawal needs an amount (in naira).')
       if (!inputs.bankAccountId) throw new Error('A withdrawal needs a bank account. List bank accounts first.')
       const koboAmt = Math.round(inputs.amount * 100)
-      const body = await api('/api/commerce/wallet/withdraw', {
-        userToken,
-        method: 'POST',
-        body: { amount: koboAmt, bankAccount: inputs.bankAccountId },
+      const { slug } = await resolveStore(context)
+      const target = { type: 'wallet', id: slug, label: 'Wallet' }
+
+      const readAvailable = async () => {
+        const b = await api(`/api/commerce/wallet/store/${encodeURIComponent(slug)}`, { userToken })
+        return kobo((b.data ?? {}).balance)   // available in ₦
+      }
+
+      let before
+      try { before = await readAvailable() } catch (e) {
+        return { kind: 'mutation', action: 'withdraw', success: false, verified: false, target, error: e.message,
+          display: `I couldn't read your wallet balance, so no money was moved. ${e.message}` }
+      }
+
+      if (before < inputs.amount) {
+        return { kind: 'mutation', action: 'withdraw', success: false, verified: false, target,
+          error: `Insufficient balance: available ${naira(before)}, requested ${naira(inputs.amount)}.`,
+          display: `That withdrawal wasn't made — your available balance is ${naira(before)}, which is less than ${naira(inputs.amount)}.` }
+      }
+
+      if (inputs.preview) {
+        return previewResult({ action: 'withdraw', target,
+          change: { field: 'available balance', before: naira(before), after: naira(before - inputs.amount) } })
+      }
+
+      const result = await verifiedMutation({
+        action: 'withdraw', target,
+        change: { field: 'available balance', before: naira(before), expected: naira(before - inputs.amount) },
+        execute: () => api('/api/commerce/wallet/withdraw', {
+          userToken, method: 'POST', body: { amount: koboAmt, bankAccount: inputs.bankAccountId },
+        }),
+        verify: async () => {
+          // Read-after-write: available must have dropped by ~the amount. Conservative —
+          // if it didn't visibly drop we report UNCONFIRMED rather than claim success.
+          const after = await readAvailable()
+          return { ok: (before - after) >= inputs.amount - 1, actual: naira(after) }
+        },
       })
-      const r = body.data ?? body
-      return { success: true, message: `Withdrawal of ₦${inputs.amount.toLocaleString('en-NG')} requested.`, payout: r }
+      result.display = result.verified
+        ? `Withdrawal of ${naira(inputs.amount)} confirmed — available balance ${naira(before)} → ${result.change.actual}.`
+        : `Withdrawal of ${naira(inputs.amount)} could NOT be confirmed against your balance — please check your wallet before retrying, so you don't double-withdraw. ${result.error}`
+      result.message = result.display
+      return result
     }
 
     throw new Error(`Unknown action: ${action}`)

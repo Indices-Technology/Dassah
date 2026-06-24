@@ -1,4 +1,4 @@
-const { api, resolveStore, kobo } = require('../_lib')
+const { api, resolveStore, kobo, verifiedMutation, previewResult } = require('../_lib')
 
 // Seller-side order management: list incoming orders, view one, advance status,
 // and ship (SHIPPED + tracking). Status transitions are guarded server-side:
@@ -24,6 +24,7 @@ module.exports = {
       trackingNumber: { type: 'string', description: 'Tracking number (ship).' },
       shipper:        { type: 'string', description: 'Carrier name (ship, optional).' },
       limit:          { type: 'number', description: 'Max orders to list (default 20).' },
+      preview:        { type: 'boolean', description: 'For update_status/ship: if true, return the real before→after WITHOUT applying it, so the seller can confirm. Apply on a second call with preview omitted.' },
     },
   },
 
@@ -61,8 +62,11 @@ module.exports = {
 
     // ── get ───────────────────────────────────────────────────────────────────
     if (action === 'get') {
-      const body = await api(`/api/commerce/orders/${orderId}`, { userToken })
-      const o = body.data ?? body
+      // Seller reads via the seller list (the buyer's /orders/{id} → "Access denied").
+      const { slug } = await resolveStore(context)
+      const listed = await api(`/api/commerce/orders/seller?storeSlug=${encodeURIComponent(slug)}&limit=200`, { userToken })
+      const o = (listed.data?.orders ?? []).find((x) => String(x.id) === String(orderId))
+      if (!o) throw new Error(`Order ${orderId} is not in your store.`)
       return {
         id:            o.id,
         status:        o.status,
@@ -84,20 +88,61 @@ module.exports = {
       }
     }
 
-    // ── update_status / ship ──────────────────────────────────────────────────
+    // ── update_status / ship (verified) ────────────────────────────────────────
     if (action === 'update_status' || action === 'ship') {
       const status = action === 'ship' ? 'SHIPPED' : inputs.status
       if (!status) throw new Error('update_status needs a status.')
+
+      // A seller can't read an individual order via /orders/{id} (that's the buyer's
+      // endpoint → "Access denied"); they read through the seller list. Use it for
+      // both before-state and read-after-write verification.
+      const readSellerOrder = async () => {
+        const { slug } = await resolveStore(context)
+        const b = await api(`/api/commerce/orders/seller?storeSlug=${encodeURIComponent(slug)}&limit=200`, { userToken })
+        return (b.data?.orders ?? []).find((o) => String(o.id) === String(orderId)) || null
+      }
+
+      let order
+      try {
+        order = await readSellerOrder()
+      } catch (e) {
+        return { kind: 'mutation', action, success: false, verified: false,
+          target: { type: 'order', id: orderId }, error: e.message,
+          display: `I couldn't load order ${orderId}, so nothing was changed. ${e.message}` }
+      }
+      if (!order) {
+        return { kind: 'mutation', action, success: false, verified: false,
+          target: { type: 'order', id: orderId }, error: `Order ${orderId} is not in your store.`,
+          display: `I couldn't find order ${orderId} among your store's orders, so nothing was changed.` }
+      }
+      const before = order.status ?? null
+      const target = { type: 'order', id: orderId, label: `Order ${orderId}` }
+      const trackingNote = inputs.trackingNumber ? ` · tracking ${inputs.trackingNumber}` : ''
+
+      if (inputs.preview) {
+        return previewResult({ action, target,
+          change: { field: 'status', before, after: `${status}${trackingNote}` } })
+      }
+
       const payload = {
         status,
         ...(inputs.trackingNumber ? { trackingNumber: inputs.trackingNumber } : {}),
         ...(inputs.shipper ? { shipper: inputs.shipper } : {}),
       }
-      await api(`/api/commerce/orders/${orderId}/status`, { userToken, method: 'PATCH', body: payload })
-      return {
-        success: true,
-        message: `Order ${orderId} → ${status}${inputs.trackingNumber ? ` (tracking ${inputs.trackingNumber})` : ''}.`,
-      }
+      const result = await verifiedMutation({
+        action, target,
+        change: { field: 'status', before, expected: status },
+        execute: () => api(`/api/commerce/orders/${orderId}/status`, { userToken, method: 'PATCH', body: payload }),
+        verify: async () => {
+          const o = await readSellerOrder()
+          return { ok: o != null && o.status === status, actual: o?.status ?? null }
+        },
+      })
+      result.display = result.verified
+        ? `Order ${orderId}: ${before} → ${status}${trackingNote}.`
+        : `Order ${orderId} status change could not be confirmed, so treat it as NOT done. ${result.error}`
+      result.message = result.display
+      return result
     }
 
     throw new Error(`Unknown action: ${action}`)

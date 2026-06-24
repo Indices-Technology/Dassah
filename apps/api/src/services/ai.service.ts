@@ -101,13 +101,14 @@ YOUR SELLER TOOLS:
 
 RULES:
 1. Never invent numbers, orders, products, or balances — always use a tool to fetch real data.
-2. ALWAYS confirm with the seller before any action that changes money, state, or what buyers see: changing a price, changing order or product status, shipping, archiving, deactivating the store, or withdrawing funds. State exactly what you're about to do and wait for a "yes".
+2. ALWAYS confirm before any action that changes money, state, or what buyers see (price, product/order status, shipping, archiving, store activation, withdrawals). To do this, call the tool with preview:true FIRST — it returns the real before→after (shown to the seller as a confirmation card) WITHOUT applying anything. Then wait for the seller's "yes" and call the tool again WITHOUT preview to apply it. Never apply a change in one step.
 3. For a withdrawal: first show the available balance and the saved bank accounts, confirm the amount and account, then withdraw. Never withdraw without an explicit confirmation.
 4. Money is in naira (₦). Tools already convert — just present the values.
 5. NEVER dump raw JSON, markdown tables, or long bullet lists of data — the UI renders analytics charts, order cards, and product cards automatically. Write a short, friendly intro sentence ("Here's how your week looked:") and let the UI handle the data.
 6. When offering choices or next steps, use a bullet list (- option) — each bullet becomes a tappable button. Only for actual selectable options, not for informational lists.
 7. When a seller wants to find, buy, or add a product to their cart, use the buyer tools exactly as you would for a buyer.
-8. Keep answers concise, warm, and action-oriented. Give one clear recommendation, not an essay.`
+8. Keep answers concise, warm, and action-oriented. Give one clear recommendation, not an essay.
+9. OUTCOMES OF ACTIONS ARE NOT YOURS TO DECLARE. When a tool that changes data returns a result with "verified" and "display" fields, you MUST NOT state the result, numbers, or whether it worked in your own words — the UI shows a verified result card from the real data. Just relay the tool's "display" text (lightly rephrased is fine) and stop. If "success" is false, tell the seller plainly that it did NOT go through and relay the tool's "error" — NEVER invent a cause (e.g. do not guess "ID format" or "platform restriction"). If you did not get a tool result, say you're not sure it completed and offer to re-check — never assume success.`
 
 // ── Conversation history (Redis) ──────────────────────────────────────────────
 
@@ -302,8 +303,9 @@ export const aiService = {
     userAIConfig: UserAIConfig | null
     storeId?:     string
     storeSlug?:   string
+    attachments?: Array<{ url: string; public_id: string; type?: string }>
   }): Promise<{ content: string; toolsInvoked: string[]; toolResults: Record<string, unknown>; guardBlocked: boolean; ragHits: number }> {
-    const { userId, content, channel, userToken, userAIConfig, storeId, storeSlug } = params
+    const { userId, content, channel, userToken, userAIConfig, storeId, storeSlug, attachments } = params
     const startMs = Date.now()
 
     // 1. Guard: sanitize input
@@ -331,11 +333,16 @@ export const aiService = {
     // 4. Build system prompt
     const system = buildSystemPrompt(channel, profileText, ragContext)
 
-    // 5. Load history and append sanitized user message
+    // 5. Load history and append sanitized user message. If the user attached
+    // images, tell the model (the actual URLs stay in context — the model never
+    // handles them) so it knows it can create/attach a product with them.
     const history = await getHistory(userId)
-    history.push({ role: 'user', content: safeContent })
+    const userMessage = attachments?.length
+      ? `${safeContent}\n\n[The user attached ${attachments.length} image${attachments.length === 1 ? '' : 's'}. When creating a product, the image(s) are attached automatically — never ask for an image URL.]`
+      : safeContent
+    history.push({ role: 'user', content: userMessage })
 
-    const skills   = loadSkills(channel, { userToken, storeId, storeSlug })
+    const skills   = loadSkills(channel, { userToken, storeId, storeSlug, attachments })
     const provider = userAIConfig?.provider ?? 'anthropic'
     const model    = userAIConfig?.model    ?? 'claude-sonnet-4-6'
     const apiKey   = userAIConfig?.apiKey   ?? process.env.ANTHROPIC_API_KEY ?? ''

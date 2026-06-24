@@ -70,6 +70,18 @@ Ranked by value.
       deploy has them, which is why buyer chat works). **Fix = set those env vars (or
       `NUXT_MARKETX_API_URL`/`_KEY`) on the UI deploy.** Added `console.error` in the
       route so the real cause shows in deploy logs.
+- [ ] **MarketX-side bugs surfaced by Dassah's read-after-write verification** (file as
+      tickets on the MarketX repo — not Dassah bugs):
+      1. **`/api/profile` returns stale `null` `store_description`** after a successful
+         PATCH (the PATCH's own returned row has the saved value). Read-path/cache bug.
+      2. **`POST /api/seller/{id}/activate` → 500 "Server Error"** for a freshly
+         registered seller (deactivate works). Likely a precondition or server bug.
+      3. **`/api/seller/by-slug/{slug}` omits `store_description` & `is_active`** — a
+         limited public projection, so it can't be used for owner-side verification.
+      4. **`GET /api/commerce/orders/{id}` is buyer-only** ("Access denied" for the
+         selling store); sellers must read individual orders via the seller list.
+      *Value note: each of these was a "✅ done!" Dassah would otherwise have lied about
+      — the verification layer caught them. Keep that layer.*
 - [x] **Store discovery from chat (search → store → products).** Product search is
       title/description-only, so "abaya" missed the *store* "Grandeur Wears and Abaya".
       `marketx` tool now also queries `/api/search?type=stores` and returns `stores[]`;

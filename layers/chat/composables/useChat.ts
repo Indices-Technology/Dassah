@@ -30,10 +30,52 @@ export interface StoreItem {
   profileUrl?: string
 }
 
+export interface ActionResult {
+  kind: 'mutation'
+  action: string
+  success: boolean
+  verified: boolean
+  target?: { type?: string; id?: string; label?: string }
+  change?: { field?: string; before?: number | string | null; expected?: number | string | null; actual?: number | string | null }
+  error?: string | null
+  display?: string
+}
+
+export interface ActionPreview {
+  kind: 'preview'
+  action: string
+  target?: { type?: string; id?: string; label?: string }
+  change?: { field?: string; before?: number | string | null; after?: number | string | null }
+}
+
+export interface SellerOrder {
+  id: string | number
+  status: string
+  paymentStatus?: string
+  total?: number
+  sellerNet?: number | null
+  itemCount?: number
+  createdAt?: string
+}
+
+export interface WalletInfo {
+  storeName?: string
+  available?: number
+  pending?: number
+  totalEarned?: number
+  currency?: string
+  transactions?: { id: string | number; type: string; amount: number; status: string; reason?: string | null; createdAt?: string }[]
+  accounts?: { id: string | number; bankName?: string; accountName?: string; accountNumber?: string; isDefault?: boolean }[]
+}
+
 export interface ChatMessageMetadata {
   toolsInvoked?: string[]
   products?: ProductItem[]
   stores?: StoreItem[]
+  actionResult?: ActionResult
+  actionPreview?: ActionPreview
+  orders?: SellerOrder[]
+  wallet?: WalletInfo
   cart?: CartState
   cartUpdate?: { success: boolean; message: string }
   orderTracking?: unknown
@@ -98,19 +140,21 @@ export const useChat = () => {
     })
   }
 
-  const sendMessage = (content: string) => {
-    if (!socket.value || !content.trim()) return
+  const sendMessage = (content: string, attachments?: { url: string; public_id: string; type?: string }[]) => {
+    if (!socket.value || (!content.trim() && !attachments?.length)) return
 
     messages.value.push({
       id: Date.now().toString(),
       role: 'user',
       content,
+      metadata: attachments?.length ? { imageUrl: attachments[0].url } : undefined,
       createdAt: new Date()
     })
 
     socket.value.emit('chat:send', {
       content,
-      sessionId: sessionId.value
+      sessionId: sessionId.value,
+      attachments,
     })
   }
 
