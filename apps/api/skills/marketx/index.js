@@ -3,16 +3,22 @@ const API_KEY  = process.env.MARKETX_API_KEY
 
 function mapProduct(p) {
   return {
-    id:       p.id,
-    name:     p.title || p.name,
-    price:    p.price,
-    discount: p.discount ?? null,
-    currency: 'NGN',
-    seller:   p.seller?.store_name,
-    sellerId: p.sellerId,
-    imageUrl: p.media?.[0]?.url,
-    inStock:  !p.variants?.length || p.variants.some((v) => v.stock > 0),
-    slug:     p.slug,
+    id:          p.id,
+    name:        p.title || p.name,
+    price:       p.price,
+    discount:    p.discount ?? null,
+    currency:    'NGN',
+    condition:   p.condition ?? null,
+    description: p.description ?? null,
+    rating:      p.averageRating ?? null,
+    reviews:     p.totalReviews ?? 0,
+    isDeal:      p.isDeal ?? false,
+    isThrift:    p.isThrift ?? false,
+    seller:      p.seller?.store_name,
+    sellerId:    p.sellerId,
+    imageUrl:    p.media?.[0]?.url,
+    inStock:     !p.variants?.length || p.variants.some((v) => v.stock > 0),
+    slug:        p.slug,
   }
 }
 

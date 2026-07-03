@@ -30,6 +30,23 @@ export interface StoreItem {
   profileUrl?: string
 }
 
+export interface MarketItem {
+  id: string
+  name: string
+  slug: string
+  type?: string | null // GEOGRAPHIC | CATEGORY
+  description?: string | null
+  location?: string | null // semantic_search sends a combined "City, State"
+  city?: string | null
+  state?: string | null
+  members?: number | null
+  followers?: number | null
+  productCount?: number | null
+  iconUrl?: string | null
+  bannerUrl?: string | null
+  marketUrl?: string
+}
+
 export interface ActionResult {
   kind: 'mutation'
   action: string
@@ -72,6 +89,7 @@ export interface ChatMessageMetadata {
   toolsInvoked?: string[]
   products?: ProductItem[]
   stores?: StoreItem[]
+  markets?: MarketItem[]
   actionResult?: ActionResult
   actionPreview?: ActionPreview
   orders?: SellerOrder[]

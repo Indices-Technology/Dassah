@@ -58,6 +58,13 @@
         @select="$emit('quickReply', $event)"
       />
 
+      <!-- Market cards (semantic_search surfaced a market, or one was opened) -->
+      <MarketCard
+        v-if="message.metadata?.markets?.length"
+        :markets="message.metadata.markets"
+        @select="$emit('quickReply', $event)"
+      />
+
       <!-- Product cards -->
       <ProductList
         v-if="message.metadata?.products?.length"
@@ -96,6 +103,7 @@ import PaymentPrompt from './PaymentPrompt.vue'
 import MarkdownText from './MarkdownText.vue'
 import ProductList from './ProductList.vue'
 import StoreCard from './StoreCard.vue'
+import MarketCard from './MarketCard.vue'
 import ConfirmActionCard from './ConfirmActionCard.vue'
 import ActionResultCard from './ActionResultCard.vue'
 import AnalyticsCard from './AnalyticsCard.vue'
@@ -119,7 +127,7 @@ const alignmentClass = computed(() => {
 // Bot messages with products need more width to show the cards
 const widthClass = computed(() => {
   if (props.message.role === 'system') return 'max-w-full'
-  if (props.message.role === 'bot' && (props.message.metadata?.products?.length || props.message.metadata?.stores?.length || props.message.metadata?.orders?.length || props.message.metadata?.wallet || props.message.metadata?.analytics)) return 'w-full max-w-[95%]'
+  if (props.message.role === 'bot' && (props.message.metadata?.products?.length || props.message.metadata?.stores?.length || props.message.metadata?.markets?.length || props.message.metadata?.orders?.length || props.message.metadata?.wallet || props.message.metadata?.analytics)) return 'w-full max-w-[95%]'
   return 'max-w-[85%] sm:max-w-[75%]'
 })
 

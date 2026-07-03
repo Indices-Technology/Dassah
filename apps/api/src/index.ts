@@ -270,6 +270,17 @@ function buildMessageMetadata(
   if (viewStore?.store) meta.stores = meta.stores ?? [viewStore.store]
   if (viewStore?.products?.length) meta.products = meta.products ?? viewStore.products
 
+  // semantic_search — vector-index results spanning products, stores, and markets
+  const semantic = toolResults['semantic_search'] as { products?: unknown[]; stores?: unknown[]; markets?: unknown[] } | undefined
+  if (semantic?.products?.length) meta.products = meta.products ?? semantic.products
+  if (semantic?.stores?.length)   meta.stores   = meta.stores   ?? semantic.stores
+  if (semantic?.markets?.length)  meta.markets  = meta.markets  ?? semantic.markets
+
+  // view_market — a specific market's profile + its products
+  const viewMarket = toolResults['view_market'] as { market?: unknown; products?: unknown[] } | undefined
+  if (viewMarket?.market) meta.markets = meta.markets ?? [viewMarket.market]
+  if (viewMarket?.products?.length) meta.products = meta.products ?? viewMarket.products
+
   // Cart state
   const cartResult = toolResults['cart'] as
     | { items?: unknown[]; subtotal?: number; count?: number; success?: boolean; message?: string; variantId?: unknown; cartItem?: unknown }
