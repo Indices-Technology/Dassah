@@ -24,12 +24,20 @@ Only users registered on MarketX can access the MarketX gateway.
 |---|---|
 | Chat UI | Nuxt 3, Nuxt Layers, TypeScript, Tailwind CSS, Socket.IO client |
 | API | Node.js, Express, TypeScript, Prisma ORM, Socket.IO server |
-| Agent Engine | OpenClaw (self-hosted gateway) |
+| Agent Engine | **Custom loop in `apps/api/src/services/ai.service.ts`** — calls Anthropic / OpenAI directly, LLM swappable per user |
+| Tool Registry | File-based auto-discovery (`skills.registry.ts` → `apps/api/skills/*/index.js`) |
 | Job Queue | BullMQ (Redis-backed) |
 | Sessions/Cache | Redis |
 | Database | PostgreSQL (managed via Prisma) |
 | Reverse Proxy | Nginx |
 | Containers | Docker + Docker Compose |
+
+> **History:** an earlier design used OpenClaw as the agent gateway (see the git
+> history and older ADRs). That is gone — the engine is now a custom tool loop.
+> If you see references to OpenClaw anywhere, they are stale; fix them.
+>
+> **Direction:** see [docs/DASAH_PLAN.md](docs/DASAH_PLAN.md) for the architecture
+> plan of record (personas-as-layers, consolidated MarketX client, what's deferred).
 
 **ORM Note:** Prisma is the default ORM. If query performance becomes an issue
 on complex joins (e.g. order history with joins across 3+ tables), drop down to
@@ -73,20 +81,23 @@ dassai/
 │
 ├── apps/
 │   ├── api/                    ← Express REST + WebSocket API
+│   │   ├── skills/             ← the tool registry (auto-discovered)
+│   │   │   ├── _lib.js         ← shared MarketX api() helper + verifiedMutation
+│   │   │   └── <skill>/index.js  ← one folder per tool (semantic_search, payment, …)
 │   │   ├── src/
-│   │   │   ├── index.ts        ← entry point
-│   │   │   ├── routes/
-│   │   │   │   ├── auth.ts    ← MarketX SSO
-│   │   │   │   ├── chat.ts   ← WebSocket chat relay
-│   │   │   │   └── orders.ts  ← Order management (buyer + seller)
+│   │   │   ├── index.ts        ← entry point (Express + Socket.IO, chat relay)
 │   │   │   ├── services/
-│   │   │   │   ├── openclaw.ts ← OpenClaw client
-│   │   │   │   ├── marketx.ts  ← MarketX API client
+│   │   │   │   ├── ai.service.ts        ← THE ENGINE (agent loop + prompts)
+│   │   │   │   ├── skills.registry.ts   ← tool auto-discovery / loader
+│   │   │   │   ├── embedding.service.ts ← query/entity embeddings
+│   │   │   │   ├── guard.service.ts     ← injection / PII / tool-input guards
+│   │   │   │   ├── user-profile.service.ts ← per-user memory
 │   │   │   │   ├── session.ts  ← Redis session store
 │   │   │   │   └── queue.ts    ← BullMQ producer
-│   │   │   └── middleware/
-│   │   │       ├── auth.ts    ← JWT validation
-│   │   │       └── marketxGate.ts ← MarketX verification
+│   │   │   ├── lib/
+│   │   │   │   └── internal.ts ← MarketX internal /api/ai/* client (X-Dassah-Internal)
+│   │   │   ├── workers/indexer.ts ← embedding indexer
+│   │   │   └── middleware/auth.ts ← JWT validation
 │   │   ├── Dockerfile
 │   │   └── package.json
 │   │
@@ -125,20 +136,6 @@ dassai/
 │       ├── Dockerfile
 │       └── package.json
 │
-├── openclaw/
-│   ├── config/
-│   │   ├── openclaw.yml       ← Dual agent configuration
-│   │   └── seller_agent.yml   ← Seller agent config
-│   └── skills/
-│       ├── marketx/            ← product search
-│       ├── payment/           ← checkout generation
-│       ├── logistics/         ← shipping calculation
-│       ├── tracker/           ← order tracking
-│       ├── dispute/           ← refund/dispute handling
-│       ├── store_management/  ← seller: inventory/pricing
-│       ├── social_media/      ← seller: campaigns
-│       └── seller_analytics/  ← seller: sales reports
-│
 ├── prisma/
 │   ├── schema.prisma
 │   └── seed.ts
@@ -153,9 +150,10 @@ dassai/
 1. **All user sessions are stored in Redis** — never in-memory. This keeps every
    service stateless so you can add replicas without breaking sessions.
 
-2. **OpenClaw is the agent brain** — the API does NOT contain business logic.
-   It relays messages to OpenClaw and streams responses back. Skills contain
-   all integration logic.
+2. **The engine is `ai.service.ts`** — the API's chat route relays a message to
+   `aiService.chat()`, which builds the system prompt (persona + user profile + RAG),
+   loads the allowed skills, and runs the tool loop against Anthropic/OpenAI. Skills
+   contain all MarketX integration logic; the API route itself holds no business logic.
 
 3. **Dual agents via session:type** — users emit `session:type` event with
    'buyer' or 'seller' to switch between agents. The API routes to the
@@ -169,7 +167,9 @@ dassai/
    publishes to `notify:{sellerId}` so sellers get instant "Cha-ching!" alerts.
 
 6. **Skills are plug-and-play** — to add a new commerce API, create a new folder
-   under `openclaw/skills/`, write `skill.yml` and `index.js`, and restart OpenClaw.
+   under `apps/api/skills/`, exporting `{ channels, description, parameters, execute }`
+   from `index.js`. `skills.registry.ts` auto-discovers it on next load — no restart
+   ceremony, no manifest. (See `_lib.js` for the shared MarketX `api()` helper.)
 
 7. **Nuxt Layers for separation** — seller components live in `layers/seller/`.
    The main UI extends this layer. This enables code reuse while keeping
@@ -196,8 +196,7 @@ docker compose up --build
 ```
 
 - UI: http://localhost:3000
-- API: http://localhost:4000
-- OpenClaw: http://localhost:5000
+- API: http://localhost:4000 (Express + Socket.IO + the agent engine)
 
 ## Seller Features
 
@@ -209,7 +208,9 @@ The seller agent supports:
 
 ## Current Status
 
-- [x] OpenClaw gateway configured (dual agents)
+- [x] Agent engine (`ai.service.ts`) — Anthropic + OpenAI, dual channels (buyer/seller)
+- [x] Tool registry (`skills.registry.ts`) auto-discovering `apps/api/skills/`
+- [x] RAG retrieval + embedding indexer; guard rails; per-user memory
 - [x] MarketX skill implemented
 - [x] Payment skill (Paystack) implemented
 - [x] Logistics skill implemented

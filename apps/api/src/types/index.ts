@@ -80,16 +80,3 @@ export interface PaymentPrompt {
   expiresAt: Date
 }
 
-// ── OpenClaw ──────────────────────────────────────────────────────────────────
-
-export interface OpenClawChatParams {
-  userId: string
-  content: string
-  channel: 'dassai-web' | 'dassai-seller-web'
-  userToken: string
-}
-
-export interface OpenClawChatResult {
-  content: string
-  toolsInvoked: string[]
-}

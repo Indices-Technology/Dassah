@@ -1,5 +1,11 @@
 # DassaAI — Architecture Decisions
 
+> **⚠ Status (2026-07-13):** This log predates the current architecture. The engine
+> is **no longer OpenClaw** — it is a custom tool loop in `apps/api/src/services/ai.service.ts`.
+> ADR-001 and ADR-007 below are **superseded** (kept for history, annotated inline).
+> For where the project is headed, read **[DASAH_PLAN.md](DASAH_PLAN.md)** — that is the
+> plan of record. ADRs are immutable records; add new ones, don't rewrite old ones.
+
 ## Decision Log
 
 Every significant architectural choice is recorded here with its rationale.
@@ -7,21 +13,44 @@ When in doubt about why something is structured a certain way, check this file f
 
 ---
 
-### ADR-001: OpenClaw as Agent Engine
+### ADR-001: OpenClaw as Agent Engine — **SUPERSEDED**
 
-**Decision:** Use OpenClaw as the AI agent gateway rather than building a custom agent loop.
+> **Superseded by the custom engine (see ADR-008).** OpenClaw was removed. The
+> `openclaw.ts` client and OpenClaw-format skills are deleted. The reasons below are
+> retained only as historical context.
 
-**Rationale:**
+**Original decision:** Use OpenClaw as the AI agent gateway rather than building a custom agent loop.
+
+**Original rationale:**
 - OpenClaw provides a mature skill system (plug-and-play integrations)
 - Self-hosted: all user data stays on our infrastructure
 - Supports Claude, GPT, DeepSeek, and local Ollama — LLM is swappable
 - Connects to messaging platforms (WhatsApp, Telegram) as optional future channels
-- 250K+ GitHub stars, active community
+
+**Why it was dropped:**
+- OpenClaw governance went into flux (founder joined OpenAI, Feb 2026)
+- We needed a custom payment-approval UX and card-rendering contract the gateway fought
+- A ~250-line in-house loop (`ai.service.ts`) gave us full control, native tool-calling,
+  and per-user LLM choice with far less operational surface than a self-hosted gateway
+
+---
+
+### ADR-008: Custom Agent Loop (replaces ADR-001)
+
+**Decision:** The agent engine is a custom loop in `apps/api/src/services/ai.service.ts`
+that calls the Anthropic and OpenAI SDKs directly.
+
+**Rationale:**
+- Native tool-calling on both providers; LLM is swappable per user (`UserAIConfig`)
+- Tools are plain JS modules auto-discovered by `skills.registry.ts` — no manifest format
+- Full ownership of the turn: guard rails, RAG context injection, per-user memory,
+  and read-after-write verification (`_lib.verifiedMutation`) all live in our code
+- One less self-hosted service to run than the OpenClaw gateway
 
 **Trade-offs:**
-- OpenClaw governance is in transition (founder joined OpenAI, Feb 2026)
-- We must monitor the project for breaking changes
-- Skills must be written in OpenClaw's format (not generic)
+- We own the loop's correctness (step cap, tool-error handling) — covered in `ai.service.ts`
+- Multi-step planning is the model's native tool loop (max 5 steps), not a dedicated
+  planner. A real planner is deferred until a workflow needs it (see DASAH_PLAN.md).
 
 ---
 
@@ -107,21 +136,25 @@ When in doubt about why something is structured a certain way, check this file f
 
 ---
 
-### ADR-007: Skills are Self-Contained
+### ADR-007: Skills are Self-Contained — **UPDATED (no more skill.yml)**
 
-**Decision:** Each OpenClaw skill is a self-contained directory with its own `index.js` and `skill.yml`.
+**Decision:** Each skill is a self-contained directory under `apps/api/skills/` with a
+single `index.js`. There is **no `skill.yml`** — the module exports its own metadata.
+
+> Superseded detail: the original OpenClaw design used a `skill.yml` manifest. The
+> custom registry (`skills.registry.ts`) instead reads exports directly, so the
+> description/parameters live next to the code.
 
 **Rationale:**
-- Adding a new commerce API = add one folder, restart OpenClaw
+- Adding a new commerce API = add one folder; `skills.registry.ts` auto-discovers it
 - Skills can be tested in isolation
-- Other agents/developers can contribute skills without touching the core
+- Others can contribute skills without touching the engine
 
-**Skill manifest (`skill.yml`) must define:**
-- `name` — unique identifier
-- `description` — what the skill does (used by LLM for tool selection)
-- `triggers` — example phrases that invoke this skill
-- `inputs` — parameters the skill expects
-- `outputs` — what the skill returns
+**Each `index.js` must export:**
+- `channels` — `['buyer']`, `['seller']`, or both (which agent may load it)
+- `description` — what the skill does (used by the LLM for tool selection)
+- `parameters` — JSON Schema object, passed straight to the provider as the tool schema
+- `execute(inputs, context)` — the implementation; `context` carries `userToken`, store info
 
 ---
 
@@ -132,20 +165,15 @@ Browser / MarketX Widget
         │
         ▼
    [Nginx :80/443]
-   /api  →  [API :4000]  ←→  [Redis :6379]
-   /     →  [UI  :3000]           │
-                │                 │
-                ▼                 ▼
-         [OpenClaw :5000]   [BullMQ Workers]
-                │                 │
-         ┌──────┴──────┐          │
-         │   Skills    │          │
-         │  marketx    │    [PostgreSQL :5432]
-         │  payment    │
-         │  logistics  │
-         │  tracker    │
-         │  dispute    │
-         └─────────────┘
+   /api  →  [API :4000] ── ai.service (agent loop) ──┐   ←→  [Redis :6379]
+   /     →  [UI  :3000]        │                     │            │
+                               ▼                     ▼            ▼
+                    skills.registry             Anthropic /   [BullMQ Workers]
+                    (apps/api/skills/*)         OpenAI SDK         │
+                               │                                   │
+                               ▼                            [PostgreSQL :5432]
+                        MarketX API  ◄── (also embeddings, profile,
+                        /api/commerce, /api/ai/*     logs via internal.ts)
 ```
 
 ---
@@ -155,13 +183,13 @@ Browser / MarketX Widget
 ```
 1. User:  "Find me a pair of Nike Air Max size 42"
 2. UI     → WebSocket → API
-3. API    → OpenClaw  (relay message)
-4. OpenClaw invokes skill: marketx.search({query, filters})
-5. marketx skill → MarketX API → returns product list
-6. OpenClaw formats response → API → UI (bot message with product cards)
+3. API    → aiService.chat()  (builds prompt: persona + profile + RAG)
+4. Loop invokes tool: semantic_search / marketx ({query, filters})
+5. skill → MarketX API → returns products/stores/markets
+6. Loop's final text → API → UI (bot message; UI renders product cards)
 
 7. User:  "Buy the second one"
-8. OpenClaw invokes skill: payment.generateLink({product, user})
+8. Loop invokes tool: payment ({product, user})
 9. payment skill creates approval_token, generates Paystack link
 10. UI renders PaymentPrompt component (price, product, confirm button)
 
@@ -171,7 +199,7 @@ Browser / MarketX Widget
 14. API sends "Order placed, processing..." to UI immediately
 
 15. Worker picks up job → calls commerce API → places order
-16. Worker invokes skill: logistics.createShipment(order)
+16. Worker invokes logistics → creates shipment
 17. Worker notifies user via WebSocket: "Order confirmed! Tracking: XYZ123"
 
 18. trackingUpdater job polls every 2h → pushes status updates to user
