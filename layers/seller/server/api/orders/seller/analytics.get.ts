@@ -13,7 +13,7 @@ const TIMEFRAME_DAYS: Record<string, number> = { today: 7, week: 7, month: 30, a
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default defineEventHandler(async (event) => {
-  const user = requireUser(event) as any
+  const user = (await requireUser(event)) as any
   const token = requireMarketXToken(event)
   const { storeId, storeSlug, timeframe = 'today' } = getQuery(event) as Record<string, string>
 

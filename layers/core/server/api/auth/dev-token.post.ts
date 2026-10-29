@@ -13,7 +13,12 @@ export default defineEventHandler((event) => {
     role: 'customer'
   }
 
-  const secret = process.env.JWT_SECRET || 'CHANGEME_generate_a_long_random_string'
+  // No fallback: verification rejects HS256 without JWT_SECRET, so a default
+  // here would only mint tokens that fail. Dies with the HS256 cutover.
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    throw createError({ statusCode: 500, statusMessage: 'Set JWT_SECRET to use dev tokens' })
+  }
   const token = jwt.sign(payload, secret, { expiresIn: '24h' })
 
   return { token, user: payload }

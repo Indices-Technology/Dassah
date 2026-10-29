@@ -12,7 +12,7 @@ import { fetchFromMarketX, requireMarketXToken } from '~~/layers/seller/server/u
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default defineEventHandler(async (event) => {
-  const user = requireUser(event) as any
+  const user = (await requireUser(event)) as any
   const token = requireMarketXToken(event)
   const { storeId, storeSlug, status, limit = '20' } = getQuery(event) as Record<string, string>
 

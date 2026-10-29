@@ -26,7 +26,7 @@ export interface SellerStoreSummary {
 }
 
 export default defineEventHandler(async (event) => {
-  const user = requireUser(event) as any
+  const user = (await requireUser(event)) as any
   const token = requireMarketXToken(event)
 
   try {

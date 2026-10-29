@@ -10,7 +10,7 @@ import { requireUser } from '~~/layers/core/server/utils/auth'
 import { fetchFromMarketX, requireMarketXToken } from '~~/layers/seller/server/utils/marketx'
 
 export default defineEventHandler(async (event) => {
-  requireUser(event)
+  await requireUser(event)
   const token = requireMarketXToken(event)
   const orderId = getRouterParam(event, 'orderId')
   if (!orderId) throw createError({ statusCode: 400, statusMessage: 'orderId is required' })

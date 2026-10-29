@@ -4,7 +4,7 @@ import { Server } from 'socket.io'
 import cors from 'cors'
 import helmet from 'helmet'
 import { randomUUID } from 'crypto'
-import jwt from 'jsonwebtoken'
+import { verifyMarketXToken } from './middleware/auth'
 import { redisClient, sessionStore } from './services/session'
 import { aiService, getHistory } from './services/ai.service'
 import { startIndexer } from './workers/indexer'
@@ -27,16 +27,12 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 // ── Auth middleware ────────────────────────────────────────────────────────────
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth.token as string | undefined
   if (!token) return next(new Error('Authentication error: token required'))
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string
-      email: string
-      role: string
-    }
+    const decoded = await verifyMarketXToken(token)
 
     if (!decoded.userId) {
       return next(new Error('Authentication error: invalid token payload'))
